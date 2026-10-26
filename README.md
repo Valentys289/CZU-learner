@@ -4,8 +4,8 @@ A thin, mobile-first web app on top of a Notion school hub (SČHOOL). Notion sta
 
 > **Fáze 2 writes to Notion.** Fáze 1 only needed the **Read content** capability. The buttons fail with "Integrace nemá oprávnění Update content" until you enable **Update content** on the connection (see [Enable writes](#enable-writes-fáze-2)).
 
-- **Dnes**: topics whose computed `Termín` is today or earlier. Overdue topics first (oldest first, red), then due today. Tap a row to open the topic in Notion.
-- **Předměty**: the 6 subjects with counts *Po termínu / Dnes / Neučeno*. Tap a card to see its due topics and the not-yet-learned topics sorted by `Deadline`.
+- **Dnes**: two areas. **Opakování**: topics whose computed `Termín` is today or earlier, overdue first (oldest first, red), then due today. **Učím nové**: not-yet-learned topics whose `Deadline` falls within 14 days or is already past (see [Encoding vs retrieval](#encoding-vs-retrieval)). Tap a row to open the topic in Notion.
+- **Předměty**: the 6 subjects with counts *Po termínu / Dnes / Učím nové*. Tap a card to see *Opakování (retrieval)*, *Učím nové (encoding)* sorted by `Deadline`, and the other learned topics.
 - **Naučeno dnes**: one-tap button for first learn (see [Fáze 2](#fáze-2-writes)).
 - **Hotovo / Trénink**: opens a small sheet to log a retrieval session (method + skóre 1 to 5) into the Notion **Tréninky** DB, and on a due topic also advance `Hotovo` (see [Tréninky: metody a skóre](#tréninky-metody-a-skóre)).
 - **Timeline**: tests, zápočty and deadlines from the Notion **Milníky** DB, with a thin progress bar (see [Timeline: Milníky z Notion](#timeline-milníky-z-notion)). Read-only.
@@ -174,6 +174,16 @@ After a successful **Hotovo** or **Naučeno dnes** a toast shows *Hotovo uložen
 - Formula properties (`Termín`) are never written.
 - Fáze 6: after a logged session the toast offers the same Zpět; it also archives the Tréninky row the save created.
 
+## Encoding vs retrieval
+
+`src/lib/phase.ts` splits topics without any new Notion property:
+
+- **Encoding** (*Učím nové*): the true Neučeno queue: `Hotovo` Neučeno or empty and no `Naučeno` date, whatever `Stav` says. Action: **Naučeno dnes**.
+- **Retrieval** (*Opakování*): everything else (a `Naučeno` date or a Hotovo step). Due ones open the session sheet (**Hotovo**).
+- When `Stav` disagrees (e.g. Priming on a topic that already has a Hotovo step), the Hotovo queue wins.
+
+`Stav` options in the Témata DBs: Priming, Encoding, Retrieval, Stable. The app shows Stav as a chip on rows and never writes it from these lists. Dnes shows encoding topics only with a `Deadline` within `ENCODING_HORIZON_DAYS` (14) or already past; the rest stay on Předměty, linked from Dnes.
+
 ## Tréninky: metody a skóre
 
 Fáze 6 replaces the one-shot **Hotovo** with a small session tracker. The source of truth for how a topic was trained and how it went is the Notion **Tréninky** DB (under SČHOOL, next to Předměty and Milníky). The checklists in the topic pages (*3. Retrieval*, *4. Fáze čtyři*) stay human notes: the app can tick them (see *Checklist v těle tématu*) but never turns a tick into a session.
@@ -185,6 +195,21 @@ Fáze 6 replaces the one-shot **Hotovo** with a small session tracker. The sourc
 - **Hotovo z Quizletu** in the sheet saves with method Quizlet (Skóre still required). Quizlet has no public API: the app never calls, scrapes or embeds Quizlet. If the topic's `Odkaz` is a quizlet.com link, the sheet shows a plain link to it.
 - **Historie** in the sheet lists the topic's last 10 sessions (newest first). Rows show the last skóre as a chip (red 1 and 2, amber 3, green 4 and 5).
 - **Naučeno dnes** stays a one-tap first learn with no session row.
+
+### Preferované metody
+
+Each subject has a short list of preferred methods in `PREFERRED_METHODS` (`src/lib/sessions.ts`). It is app config, not a Notion property, so changing it is a code edit:
+
+| Předmět | Preferované |
+|---------|-------------|
+| M | Generated Qs, Brain dump, Flashcards |
+| CH | Flashcards, Quizlet, Generated Qs |
+| ICT | Flashcards, Generated Qs, Jiné |
+| TD | Brain dump, Jiné, Flashcards |
+| UE | Flashcards, Jiné |
+| AJ | Quizlet, Flashcards, Generated Qs |
+
+The sheet lists the preferred methods first and preselects the first one; the other methods stay available after them, dimmed. The open subject card in Předměty shows the list as *Metody: …*. With Skóre 1 or 2 the sheet adds a short tip ("Zkus příště jinou metodu."); it does not change the gap. Quizlet stays a manual log plus the optional `Odkaz` link. The *3. Retrieval* checklist in the topic body is not the session log: Tréninky is.
 
 ### Hotovo gap rule
 

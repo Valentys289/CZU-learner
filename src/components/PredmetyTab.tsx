@@ -3,13 +3,10 @@ import type { SubjectCode, SubjectError, Topic } from "../types";
 import { SUBJECTS } from "../notion/config";
 import { dnesList } from "../lib/termin";
 import { pluralTemat } from "../lib/format";
+import { isEncodingTopic } from "../lib/phase";
+import { METHOD_LABEL, preferredMethodsFor } from "../lib/sessions";
 import { SubjectBadge } from "./SubjectBadge";
 import { TopicRow } from "./TopicRow";
-
-/** Not learned yet: Neučeno (or empty) and no Naučeno date, so not in the retrieval queue. */
-function isNotLearned(t: Topic): boolean {
-  return (t.hotovo === null || t.hotovo === "Neučeno") && !t.nauceno;
-}
 
 function byDeadline(a: Topic, b: Topic): number {
   if (a.deadline && b.deadline) return a.deadline.localeCompare(b.deadline);
@@ -28,10 +25,10 @@ export function PredmetyTab({ topics, today, errors }: { topics: Topic[]; today:
         const due = dnesList(mine);
         const overdue = due.filter((t) => t.dueState === "overdue").length;
         const dueToday = due.length - overdue;
-        const notLearned = mine.filter(isNotLearned).sort(byDeadline);
+        const notLearned = mine.filter(isEncodingTopic).sort(byDeadline);
         // Learned but not due: extra practice only (Trénink, log without moving the gap by default).
         const others = mine
-          .filter((t) => !isNotLearned(t) && !due.includes(t))
+          .filter((t) => !isEncodingTopic(t) && !due.includes(t))
           .sort((a, b) => (a.termin ?? "9999").localeCompare(b.termin ?? "9999") || a.title.localeCompare(b.title, "cs"));
         const error = errors.find((e) => e.subject === s.code);
         const isOpen = open === s.code;
@@ -54,14 +51,15 @@ export function PredmetyTab({ topics, today, errors }: { topics: Topic[]; today:
               <div className="stats">
                 <Stat label="Po termínu" value={overdue} tone={overdue > 0 ? "bad" : undefined} />
                 <Stat label="Dnes" value={dueToday} tone={dueToday > 0 ? "warn" : undefined} />
-                <Stat label="Neučeno" value={notLearned.length} />
+                <Stat label="Učím nové" value={notLearned.length} />
               </div>
             )}
             {isOpen && !error && (
               <div className="card-body">
+                <p className="card-methods">Metody: {preferredMethodsFor(s.code).map((m) => METHOD_LABEL[m]).join(", ")}</p>
                 {due.length > 0 && (
                   <>
-                    <h3 className="sub-title">K opakování</h3>
+                    <h3 className="sub-title">Opakování (retrieval)</h3>
                     <ul className="topics">
                       {due.map((t) => (
                         <TopicRow key={t.id} topic={t} today={today} showBadge={false} />
@@ -71,7 +69,7 @@ export function PredmetyTab({ topics, today, errors }: { topics: Topic[]; today:
                 )}
                 {notLearned.length > 0 && (
                   <>
-                    <h3 className="sub-title">Neučeno podle deadline</h3>
+                    <h3 className="sub-title">Učím nové (encoding)</h3>
                     <ul className="topics">
                       {notLearned.map((t) => (
                         <TopicRow key={t.id} topic={t} today={today} showBadge={false} />

@@ -4,9 +4,11 @@ import { formatDate } from "../lib/format";
 import { canMarkHotovo } from "../lib/hotovo";
 import {
   defaultAdvanceGap,
+  LOW_SCORE,
   METHOD_LABEL,
-  METHODS,
   normalizeScore,
+  orderedMethods,
+  preferredMethodsFor,
   SCORES,
   sessionPatch,
   type RetrievalMethod,
@@ -52,7 +54,9 @@ export function SessionSheet({
   onSave: (input: SessionWriteInput) => Promise<string | null>;
   onPlainHotovo: () => void;
 }) {
-  const [method, setMethod] = useState<RetrievalMethod | null>(initialMethod ?? null);
+  const methods = orderedMethods(topic.subject);
+  const preferred = preferredMethodsFor(topic.subject);
+  const [method, setMethod] = useState<RetrievalMethod | null>(initialMethod ?? methods[0] ?? null);
   const [score, setScore] = useState<number | null>(null);
   const [date, setDate] = useState(today);
   const [advanceGap, setAdvanceGap] = useState(() => defaultAdvanceGap(topic));
@@ -134,14 +138,14 @@ export function SessionSheet({
             <fieldset className="sheet-field">
               <legend>Metoda</legend>
               <div className="segmented" role="radiogroup" aria-label="Metoda">
-                {METHODS.map((m, i) => (
+                {methods.map((m, i) => (
                   <button
                     key={m}
                     ref={i === 0 ? firstRef : undefined}
                     type="button"
                     role="radio"
                     aria-checked={method === m}
-                    className={`seg${method === m ? " seg-on" : ""}`}
+                    className={`seg${method === m ? " seg-on" : ""}${preferred.includes(m) ? "" : " seg-other"}`}
                     onClick={() => setMethod(m)}
                     disabled={saving}
                   >
@@ -172,6 +176,7 @@ export function SessionSheet({
                 ))}
               </div>
               <p className="sheet-hint">1 katastrofa, 5 jistý</p>
+              {score !== null && score <= LOW_SCORE && <p className="sheet-tip">Zkus příště jinou metodu.</p>}
             </fieldset>
 
             <div className="sheet-row">
