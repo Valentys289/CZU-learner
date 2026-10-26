@@ -1,4 +1,4 @@
-# ČZU Study Dashboard (Fáze 3)
+# ČZU Study Dashboard (Fáze 4)
 
 A thin, mobile-first web app on top of Honza's Notion school hub (SČHOOL). Notion stays the source of truth: nothing is migrated. Fáze 1 was read-only; Fáze 2 adds two write buttons (**Hotovo**, **Naučeno dnes**) that update a topic's properties in Notion.
 
@@ -129,6 +129,48 @@ Formula properties (`Termín`) are never written; the app recomputes Termín loc
 `POST /api/topics/{pageId}/hotovo` and `POST /api/topics/{pageId}/nauceno` (Vite middleware). The server reads the page first (`GET /v1/pages/{id}`), checks that it belongs to one of the 6 Témata databases, computes the patch from Notion's current values (so a stale browser tab cannot skip a step), then `PATCH /v1/pages/{id}` and returns the updated topic.
 
 The dev server listens on your LAN (`server.host: true`) so the phone can reach it. Since Fáze 2 the API can write, so only run it on a network you trust.
+
+## Mac app (Fáze 4)
+
+The same UI packaged with Electron, so daily use is a double-click, no terminal. The app starts a small server on `127.0.0.1` (random port, only reachable from this Mac) that serves the built UI and the same `/api/topics` routes as `npm run dev`. The Notion token stays in the main process and is never sent to the page.
+
+### Build the .app (once, on the Mac)
+
+```bash
+git fetch && git checkout faze-4-electron   # or main after merge
+npm install
+npm run electron:build
+```
+
+This produces `release/CZU Study Dashboard-<version>-arm64.dmg` (and a `.zip`) for Apple Silicon. Open the `.dmg`, drag **CZU Study Dashboard** to Applications, then drag it to the Dock.
+
+The app is not signed with an Apple developer ID (only ad-hoc). A build you made yourself usually opens straight away. If macOS says it cannot verify the developer: System Settings, Privacy & Security, **Open Anyway** (once).
+
+### Notion token in the app
+
+- **First launch** shows a short form "Vlož Notion token". Paste the token of the **ČZU Study Dashboard** integration and click *Uložit a načíst*. If `~/CZU-learner/.env.local` exists, the form also offers to import the token from it (that file is the only place it looks).
+- The token is stored encrypted with Electron `safeStorage` (the key lives in the macOS Keychain) in the app's data folder (`~/Library/Application Support/ČZU Study Dashboard/notion-token.bin`), never in the repo.
+- To replace it (rotated token): menu **CZU Study Dashboard → Změnit Notion token…**. A rejected token also brings the form back.
+- If Notion is unreachable (offline), the app shows a Czech error instead of a blank window; *Obnovit* retries.
+
+### Develop with Electron
+
+```bash
+npm run electron:dev
+```
+
+Runs the Electron window against Vite (with hot reload) from this clone. Without a stored token it falls back to the clone's `.env.local`, like `npm run dev`. `npm run dev` in the browser keeps working as before.
+
+Notion and plan links always open in your default browser. Auto-start on login, Windows/Linux builds and code signing are not part of v1.
+
+## Zpět (undo)
+
+After a successful **Hotovo** or **Naučeno dnes** a toast shows *Hotovo uloženo* / *Naučeno dnes* with **Zpět** for 5 seconds. Zpět writes the previous values back to Notion (only the fields the action changed: `Hotovo`, `Poslední opakování`, and for first learn also `Naučeno` and `Stav`; empty fields are cleared again) and the topic returns to its list.
+
+- Only the last write can be undone; a new write replaces it.
+- The previous values come from Notion right before the write (`POST /api/topics/{id}/hotovo` returns them), not from the browser's copy.
+- `POST /api/topics/{id}/undo` refuses (409) if the page changed in Notion since the write, so a change made elsewhere is never overwritten. If undo fails, the app shows the error and reloads from Notion.
+- Formula properties (`Termín`) are never written.
 
 ## Timeline: sources of truth
 
