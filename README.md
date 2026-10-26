@@ -1,4 +1,4 @@
-# ČZU Study Dashboard (Fáze 2)
+# ČZU Study Dashboard (Fáze 3)
 
 A thin, mobile-first web app on top of Honza's Notion school hub (SČHOOL). Notion stays the source of truth: nothing is migrated. Fáze 1 was read-only; Fáze 2 adds two write buttons (**Hotovo**, **Naučeno dnes**) that update a topic's properties in Notion.
 
@@ -7,7 +7,7 @@ A thin, mobile-first web app on top of Honza's Notion school hub (SČHOOL). Noti
 - **Dnes**: topics whose computed `Termín` is today or earlier. Overdue topics first (oldest first, red), then due today. Tap a row to open the topic in Notion.
 - **Předměty**: the 6 subjects with counts *Po termínu / Dnes / Neučeno*. Tap a card to see its due topics and the not-yet-learned topics sorted by `Deadline`.
 - **Hotovo / Naučeno dnes**: one-tap buttons on topic rows (see [Fáze 2](#fáze-2-writes)).
-- **Timeline**: stub for Fáze 3.
+- **Timeline**: upcoming zápočty, tests and deadlines with a thin progress bar (see [Timeline](#timeline-sources-of-truth)). Read-only.
 
 Stack: Vite + React + TypeScript, Vitest. The Notion token is used only by a small middleware inside the Vite dev/preview server (`/api/topics`), never in the browser.
 
@@ -130,6 +130,29 @@ Formula properties (`Termín`) are never written; the app recomputes Termín loc
 
 The dev server listens on your LAN (`server.host: true`) so the phone can reach it. Since Fáze 2 the API can write, so only run it on a network you trust.
 
+## Timeline: sources of truth
+
+The Timeline tab makes **no extra Notion calls and no writes**. It reuses the topics already loaded for Dnes and combines them with a static baseline.
+
+| Source | What it gives | Who updates it |
+|--------|---------------|----------------|
+| `src/timeline/baseline.ts` | Verified milestones (baseline 26. 10. 2026): dates, times, places, soft rows | DEKAN, by editing the file when sources change |
+| Notion `Deadline` on topics | Live dates for milestones that declare a `deadlineMatch` (ICT Excel opravný, TD Téma SP) | Honza, in Notion |
+| Notion `Naučeno` / `Hotovo` | Progress bars | Fáze 2 buttons or Notion |
+
+Rules:
+
+- **No invented days.** A milestone without a concrete day is a soft row (ICT esej "Konec listopadu", Excel "Začátek prosince", UE "Zápočet = docházka") with no date and no countdown.
+- When a live Notion `Deadline` disagrees with the baseline, the card shows **both** dates with a **Konflikt zdrojů** badge, Notion first.
+- TD Téma SP only appears while a TD topic still carries that `Deadline`.
+- Matematika test 2 progress counts 4 bundles (Definiční obor, Inverzní funkce, Limity, Derivace) matched by topic title; Derivace is done only when both Asymptoty and Výpočet derivací are learned. A bundle with no matching topic shows a `?`. Badge Fáze A until 14. 11. 2026, Fáze B after. "Otevřít plán" links out to the test 2 study page.
+- Other progress: "learned" = `Naučeno` set or `Hotovo` past Neučeno. Chemie and AJ count all topics of the subject.
+- Sort: upcoming (soonest first), then Bez data, then Minulé (collapsed, most recent first). A conflict counts as past only when all its dates are.
+
+### Chemie conflict
+
+The zápočtová písemka date is **not resolved**: the Chemie page and the 23. 10. lecture summary say **út 5. 1. 2027**, the Termíny ČZU page says **6. 1. 2027**. The card shows "út 5. 1. 2027 / st 6. 1. 2027" with the Konflikt zdrojů badge. Once DEKAN or Honza confirms the real date, set `date` and remove `conflictDates` in `baseline.ts`.
+
 ## Out of scope
 
-Timeline (Fáze 3), undo, snooze or skip, inserting or deleting pages, editing Fáze checklists inside topic pages, Google Calendar, Quizlet/flashcards, UIS/Moodle, auth and Vercel deploy.
+Milestone editing in the app, Moodle/UIS/Drive scraping, undo, snooze or skip, inserting or deleting pages, editing Fáze checklists inside topic pages, Google Calendar, Quizlet/flashcards, UIS/Moodle, auth and Vercel deploy.

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Topic, TopicsResponse } from "./types";
 import { DnesTab } from "./components/DnesTab";
 import { PredmetyTab } from "./components/PredmetyTab";
+import { TimelineTab } from "./components/TimelineTab";
 import { formatToday } from "./lib/format";
 import { dnesList, withTermin } from "./lib/termin";
 import { applyAction, type TopicAction } from "./lib/hotovo";
@@ -116,7 +117,7 @@ export function App() {
             {tab === "predmety" && (
               <PredmetyTab topics={state.data.topics} today={state.data.today} errors={state.data.errors} />
             )}
-            {tab === "timeline" && <p className="empty">Timeline přijde ve Fázi 3</p>}
+            {tab === "timeline" && <TimelineTab topics={state.data.topics} today={state.data.today} />}
           </TopicActionsContext.Provider>
         )}
       </main>
