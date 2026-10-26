@@ -16,6 +16,7 @@ import {
 import { TopicActionsContext, type TopicActions } from "./components/TopicActions";
 import { TokenSetup } from "./components/TokenSetup";
 import { SessionSheet } from "./components/SessionSheet";
+import { ChecklistSheet } from "./components/ChecklistSheet";
 import { METHOD_LABEL, toPageId, type LastSession, type RetrievalMethod, type SessionWriteInput } from "./lib/sessions";
 import { desktop } from "./desktop";
 
@@ -52,6 +53,7 @@ export function App() {
   const [pending, setPending] = useState<ReadonlySet<string>>(new Set());
   const [toast, setToast] = useState<Toast | null>(null);
   const [sheet, setSheet] = useState<Sheet | null>(null);
+  const [checklistId, setChecklistId] = useState<string | null>(null);
   const bridge = desktop();
   const stateRef = useRef(state);
   stateRef.current = state;
@@ -226,6 +228,7 @@ export function App() {
     () => ({
       run: (t, a) => void run(t, a),
       openSession: (t, method) => setSheet({ topicId: t.id, method }),
+      openChecklist: (t) => setChecklistId(t.id),
       pending,
       lastSession: (id) => lastMap?.[toPageId(id)],
     }),
@@ -233,6 +236,9 @@ export function App() {
   );
   const sheetTopic = sheet && state.status === "ready" ? state.data.topics.find((t) => t.id === sheet.topicId) : undefined;
   const closeSheet = useCallback(() => setSheet(null), []);
+  const checklistTopic = checklistId && state.status === "ready" ? state.data.topics.find((t) => t.id === checklistId) : undefined;
+  const closeChecklist = useCallback(() => setChecklistId(null), []);
+  const checklistError = useCallback((message: string) => setToast({ kind: "error", message }), []);
 
 
   useEffect(() => {
@@ -325,6 +331,10 @@ export function App() {
             void run(sheetTopic, "hotovo");
           }}
         />
+      )}
+
+      {checklistTopic && (
+        <ChecklistSheet key={checklistTopic.id} topic={checklistTopic} onClose={closeChecklist} onError={checklistError} />
       )}
 
       <nav className="tabs" aria-label="Sekce">

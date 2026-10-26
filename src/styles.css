@@ -283,6 +283,13 @@ button { font: inherit; color: inherit; }
   box-shadow: inset 0 0 0 1.5px var(--accent);
 }
 .topic-action:disabled { opacity: 0.6; cursor: default; }
+.topic-action.topic-checklist {
+  margin-right: 6px;
+  padding: 8px 10px;
+  color: var(--muted);
+  box-shadow: inset 0 0 0 1px var(--border);
+  font-weight: 600;
+}
 @media (prefers-color-scheme: dark) {
   .topic-action:not(.topic-action-secondary) { color: #10291c; }
 }
@@ -302,7 +309,8 @@ button { font: inherit; color: inherit; }
   border-radius: 12px;
   padding: 10px 12px;
   font-size: 0.9rem;
-  z-index: 2;
+  /* Above the sheets, so a failed checklist tick is visible while the sheet is open. */
+  z-index: 4;
 }
 .toast p { flex: 1; margin: 0; overflow-wrap: anywhere; }
 .toast button { border: 0; background: none; color: var(--bad); font-weight: 700; cursor: pointer; padding: 0; }
@@ -467,3 +475,11 @@ button { font: inherit; color: inherit; }
 .history li { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; font-size: 0.9rem; }
 .history-date { color: var(--muted); min-width: 64px; }
 .history-gap { font-size: 0.78rem; color: var(--muted); }
+
+/* Fáze 7 B: checklist from the topic page body */
+.checklist-section .sub-title { margin: 4px 0 6px; text-transform: none; letter-spacing: 0; }
+.checklist { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.checklist-item { display: flex; align-items: center; gap: 10px; min-height: 36px; font-size: 0.95rem; cursor: pointer; }
+.checklist-item input { width: 20px; height: 20px; accent-color: var(--accent); flex-shrink: 0; }
+.checklist-item input:disabled { opacity: 0.6; }
+.checklist-done span { color: var(--muted); text-decoration: line-through; }

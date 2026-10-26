@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   fetchAllTopics,
+  fetchChecklist,
   fetchMilniky,
   fetchSessions,
   fetchTreninky,
@@ -8,6 +9,7 @@ import {
   pageToMilnikyRow,
   pageToSession,
   pageToTopic,
+  setChecklistItem,
   undoSession,
   undoTopic,
   updateTopic,
@@ -520,5 +522,86 @@ describe("Tréninky DB (Fáze 6)", () => {
     await expect(undoSession("tok", "trenink-db", "sess-1", "99999999-2222-3333-4444-555555555555")).rejects.toMatchObject({ status: 404 });
     await expect(undoSession("tok", "other-db", "sess-1", topicId)).rejects.toMatchObject({ status: 404 });
     expect(fetchMock.mock.calls.every(([, init]) => init?.method === "GET")).toBe(true);
+  });
+});
+
+describe("checklist in the page body (Fáze 7 B)", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status });
+  const inChemie = { ...page, parent: { type: "database_id", database_id: chemie.databaseId.replace(/-/g, "") } };
+  const text = (t: string) => ({ rich_text: [{ plain_text: t }] });
+  const todo = (id: string, t: string, checked = false) => ({ object: "block", id, type: "to_do", to_do: { ...text(t), checked } });
+  const children = (results: unknown[], next: string | null = null) => ({ results, has_more: next !== null, next_cursor: next });
+
+  /** abc: "1. faze" list item (with a nested to_do), a loose to_do, then "3. Retrieval" over two pages. */
+  function notion(patchStatus = 200) {
+    return vi.fn(async (url: string, init?: RequestInit) => {
+      if (url.endsWith("/pages/abc")) return json(inChemie);
+      if (url.includes("/blocks/abc/children") && !url.includes("start_cursor")) {
+        return json(
+          children(
+            [
+              todo("loose", "mimo sekci"),
+              { object: "block", id: "num", type: "numbered_list_item", has_children: true, numbered_list_item: text("faze") },
+              { object: "block", id: "tbl", type: "table", has_children: true, table: {} },
+              { object: "block", id: "h3", type: "heading_3", heading_3: text("3. Retrieval") },
+            ],
+            "c2",
+          ),
+        );
+      }
+      if (url.includes("/blocks/abc/children")) return json(children([todo("flash", "flashcards")]));
+      if (url.includes("/blocks/num/children")) return json(children([todo("nested", "read with understanding", true)]));
+      if (init?.method === "PATCH") {
+        if (patchStatus !== 200) return json({ message: "Insufficient permissions" }, patchStatus);
+        return json(todo("flash", "flashcards", JSON.parse(init.body as string).to_do.checked));
+      }
+      throw new Error(`unexpected ${url}`);
+    });
+  }
+
+  it("reads the allowlisted page, paginates, follows list children but not tables", async () => {
+    const fetchMock = notion();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { sections } = await fetchChecklist("tok", "abc");
+
+    expect(sections).toEqual([
+      { kind: "encoding", heading: "1. faze", items: [{ blockId: "nested", text: "read with understanding", checked: true }] },
+      { kind: "retrieval", heading: "3. Retrieval", items: [{ blockId: "flash", text: "flashcards", checked: false }] },
+    ]);
+    const urls = fetchMock.mock.calls.map(([url]) => url);
+    expect(urls[0]).toBe("https://api.notion.com/v1/pages/abc");
+    expect(urls.some((u) => u.includes("/blocks/tbl/"))).toBe(false);
+  });
+
+  it("PATCHes only to_do.checked on an item under a known section", async () => {
+    const fetchMock = notion();
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(setChecklistItem("tok", "abc", "flash", { checked: true })).resolves.toEqual({ blockId: "flash", checked: true });
+    const patches = fetchMock.mock.calls.filter(([, init]) => init?.method === "PATCH");
+    expect(patches).toHaveLength(1);
+    expect(patches[0][0]).toBe("https://api.notion.com/v1/blocks/flash");
+    expect(JSON.parse(patches[0][1]!.body as string)).toEqual({ to_do: { checked: true } });
+    // Never a Tréninky row or any other POST.
+    expect(fetchMock.mock.calls.some(([, init]) => init?.method === "POST")).toBe(false);
+  });
+
+  it("refuses a to_do outside the Fáze sections, a bad body and a page outside Témata", async () => {
+    const fetchMock = notion();
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(setChecklistItem("tok", "abc", "loose", { checked: true })).rejects.toMatchObject({ status: 404 });
+    await expect(setChecklistItem("tok", "abc", "flash", { checked: "yes" })).rejects.toMatchObject({ status: 400 });
+    expect(fetchMock.mock.calls.some(([, init]) => init?.method === "PATCH")).toBe(false);
+
+    vi.stubGlobal("fetch", vi.fn(async () => json({ ...page, parent: { type: "page_id" } })));
+    await expect(fetchChecklist("tok", "abc")).rejects.toMatchObject({ status: 404 });
+  });
+
+  it("passes a Notion refusal on (the UI reverts the tick)", async () => {
+    vi.stubGlobal("fetch", notion(403));
+    await expect(setChecklistItem("tok", "abc", "flash", { checked: true })).rejects.toMatchObject({ status: 403 });
   });
 });

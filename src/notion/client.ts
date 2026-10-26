@@ -15,6 +15,17 @@ import {
   type TrainingSession,
   type TreninkyResponse,
 } from "../lib/sessions";
+import {
+  checklistPatch,
+  CHECKLIST_RECURSE,
+  findChecklistItem,
+  parseChecklistSections,
+  parseCheckedBody,
+  toChecklistBlock,
+  type ChecklistBlock,
+  type ChecklistResponse,
+  type NotionBlock,
+} from "../lib/checklist";
 
 const NOTION_API = "https://api.notion.com/v1";
 const DATA_SOURCE_VERSION = "2025-09-03";
@@ -455,4 +466,53 @@ export async function undoSession(token: string, databaseId: string | null, sess
   }
   if (page.in_trash || page.archived) return;
   await archivePage(token, sessionId);
+}
+
+type BlockChildren = { results: NotionBlock[]; has_more: boolean; next_cursor: string | null };
+
+/** Children reads per checklist load, so a huge page cannot stall the app. */
+const MAX_BLOCK_READS = 40;
+
+/**
+ * The page body flattened in document order: each block, then its children
+ * (list items, to_dos, toggles, toggle headings; never tables or sub-pages).
+ */
+async function readBlockTree(token: string, pageId: string): Promise<ChecklistBlock[]> {
+  let reads = 0;
+  async function children(id: string, depth: number): Promise<ChecklistBlock[]> {
+    const out: ChecklistBlock[] = [];
+    let cursor: string | null = null;
+    do {
+      if (++reads > MAX_BLOCK_READS) return out;
+      const query: string = `page_size=100${cursor ? `&start_cursor=${encodeURIComponent(cursor)}` : ""}`;
+      const res: BlockChildren = await notionRequest<BlockChildren>(token, LEGACY_VERSION, "GET", `/blocks/${id}/children?${query}`);
+      for (const block of res.results) {
+        out.push(toChecklistBlock(block));
+        if (block.has_children && depth < 3 && CHECKLIST_RECURSE.has(block.type)) out.push(...(await children(block.id, depth + 1)));
+      }
+      cursor = res.has_more ? res.next_cursor : null;
+    } while (cursor);
+    return out;
+  }
+  return children(pageId, 0);
+}
+
+/** Fáze checklist of one topic page (only pages in the 6 Témata databases). */
+export async function fetchChecklist(token: string, pageId: string): Promise<ChecklistResponse> {
+  await readTopicPage(token, pageId);
+  return { sections: parseChecklistSections(await readBlockTree(token, pageId)) };
+}
+
+/**
+ * Tick or untick one checklist item. The block must be a to_do under a known
+ * Fáze section of this topic's page; only `to_do.checked` is sent.
+ */
+export async function setChecklistItem(token: string, pageId: string, blockId: string, body: unknown): Promise<{ blockId: string; checked: boolean }> {
+  const checked = parseCheckedBody(body);
+  if (checked === null) throw new NotionError("Chybí stav zaškrtnutí", 400);
+  const { sections } = await fetchChecklist(token, pageId);
+  const item = findChecklistItem(sections, blockId);
+  if (!item) throw new NotionError("Položka nepatří do checklistu Fáze tohoto tématu", 404);
+  const updated = await notionRequest<NotionBlock>(token, LEGACY_VERSION, "PATCH", `/blocks/${item.blockId}`, checklistPatch(checked));
+  return { blockId: item.blockId, checked: toChecklistBlock(updated).checked ?? checked };
 }

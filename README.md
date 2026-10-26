@@ -176,7 +176,7 @@ After a successful **Hotovo** or **Naučeno dnes** a toast shows *Hotovo uložen
 
 ## Tréninky: metody a skóre
 
-Fáze 6 replaces the one-shot **Hotovo** with a small session tracker. The source of truth for how a topic was trained and how it went is the Notion **Tréninky** DB (under SČHOOL, next to Předměty and Milníky). The checklists in the topic pages (*3. Retrieval*, *4. Fáze čtyři*) stay human notes: the app never reads, ticks or renames them.
+Fáze 6 replaces the one-shot **Hotovo** with a small session tracker. The source of truth for how a topic was trained and how it went is the Notion **Tréninky** DB (under SČHOOL, next to Předměty and Milníky). The checklists in the topic pages (*3. Retrieval*, *4. Fáze čtyři*) stay human notes: the app can tick them (see *Checklist v těle tématu*) but never turns a tick into a session.
 
 ### In the app
 
@@ -216,6 +216,18 @@ Endpoints: `POST /api/topics/{pageId}/session` with `{ method, score, date?, adv
 ### Planning from scores
 
 In Notion, filter Tréninky by `Skóre` ≤ 2 (optionally the last 14 days of `Datum`) and group by `Téma` or `Předmět` to see weak topics; group by `Metoda` to see which method works. Tréninky rows never appear on the Timeline and never create dates or pages elsewhere.
+
+## Checklist v těle tématu
+
+**Fáze** on a topic row opens the checklist from the topic's Notion page body: the to_do items under the Fáze sections, grouped as they are in Notion. Ticking an item shows at once and is written to Notion; if Notion refuses, the tick flips back and the app shows "Nepodařilo se uložit checklist".
+
+- Only to_do blocks under the known sections are shown and can be written: the two encoding sections (`1. faze`), `3. Retrieval` and `4. Fáze čtyři`. A section runs to the next of those markers or the next heading. Any other to_do on the page is ignored. A missing section is just not shown; the app never creates it.
+- The only write is `to_do.checked` on that one block. Headings, text, order and structure are never renamed, normalized, created or deleted.
+- A tick is not a training session: it never creates a Tréninky row and never moves Hotovo. Tréninky stays the session log.
+- The Notion block API is fragile (nested lists, toggles, pagination), so matching is on plain text and tolerant of bold and spacing, and children are read only for list items, to_dos, toggles and toggle headings (never tables or sub-pages).
+- Needs **Read content** and **Update content** on the integration, like Hotovo.
+
+Endpoints: `GET /api/topics/{pageId}/checklist` → `{ sections: [{ heading, kind, items: [{ blockId, text, checked }] }] }`, `POST /api/topics/{pageId}/checklist/{blockId}` with `{ checked }`. The server checks the page is in one of the 6 Témata DBs and that the block is a to_do under a known section of that page before it writes.
 
 ## Timeline: Milníky z Notion
 
