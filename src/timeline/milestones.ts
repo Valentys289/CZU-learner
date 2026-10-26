@@ -1,11 +1,8 @@
 import type { SubjectCode, Topic } from "../types";
 import { SUBJECTS } from "../notion/config";
-import { daysBetween, isNeuceno } from "../lib/termin";
-import { BASELINE, MATH_TEST_2_PHASE_A_END, type BaselineMilestone } from "./baseline";
-import type { Milestone, MilestoneSource, Progress } from "./types";
-
-/** A topic's Notion `Deadline`, as a milestone candidate. */
-export type NotionDeadline = { subject: SubjectCode; title: string; date: string; topicId: string };
+import { daysBetween, isNeuceno, toDateOnly } from "../lib/termin";
+import { PHASE_RULES } from "./config";
+import type { Milestone, MilestoneKind, MilnikyResponse, MilnikyRow, Progress, ProgressItem } from "./types";
 
 /** Learned: has a Naučeno date or Hotovo is past Neučeno. */
 export function isLearned(t: Pick<Topic, "hotovo" | "nauceno">): boolean {
@@ -25,93 +22,95 @@ export function daysUntil(date: string, today: string): number {
   return daysBetween(today, date);
 }
 
-// Matematika test 2: 4 bundles. A bundle is done when every part has a matching topic and all of them are learned.
-const MATH_TEST_2_BUNDLES: { name: string; parts: RegExp[] }[] = [
-  { name: "Definiční obor", parts: [/definiční|reálné funkce/i] },
-  { name: "Inverzní funkce", parts: [/inverzní/i] },
-  { name: "Limity", parts: [/limit/i] },
-  { name: "Derivace", parts: [/asymptot/i, /derivac/i] },
-];
-
-export type BundleProgress = { name: string; done: boolean; found: boolean; topicIds: string[] };
-export type MathTest2Progress = Progress & { bundles: BundleProgress[] };
-
-export function mathTest2Progress(topics: Topic[]): MathTest2Progress {
-  const math = topics.filter((t) => t.subject === "M");
-  const bundles = MATH_TEST_2_BUNDLES.map(({ name, parts }) => {
-    const perPart = parts.map((re) => math.filter((t) => re.test(t.title)));
-    const matched = [...new Set(perPart.flat())];
-    const found = perPart.every((m) => m.length > 0);
-    return { name, found, done: found && matched.every(isLearned), topicIds: matched.map((t) => t.id) };
-  });
-  return { ...progressOf(bundles.filter((b) => b.done).length, bundles.length), bundles };
-}
-
-/** "A" until 14. 11. while bundles are missing, "A-done" when all 4 are learned by then, "B" afterwards. */
-export function mathTest2Phase(today: string, done: number): "A" | "A-done" | "B" {
-  if (today > MATH_TEST_2_PHASE_A_END) return "B";
-  return done < MATH_TEST_2_BUNDLES.length ? "A" : "A-done";
-}
-
-export function notionDeadlines(topics: Topic[]): NotionDeadline[] {
-  return topics
-    .filter((t): t is Topic & { deadline: string } => t.deadline !== null)
-    .map((t) => ({ subject: t.subject, title: t.title, date: t.deadline, topicId: t.id }));
-}
-
-const uniqSorted = (dates: string[]) => [...new Set(dates)].sort();
+const norm = (s: string) => s.toLocaleLowerCase("cs").replace(/\s+/g, " ").trim();
 
 /**
- * Combine the baseline with live Notion Deadlines. A matching Deadline that
- * differs from the baseline date is kept as a conflict (both dates shown, the
- * Notion one displayed first), never silently resolved. Milestones that need a
- * Notion Deadline and have none are dropped. Progress is filled in later.
+ * Progress over the topic titles listed in a milestone's `Progress témata`
+ * (one per line), matched against the already loaded topics of that subject:
+ * exact title first, then a topic title containing the listed text, then the
+ * other way round. Unmatched titles count as not done.
  */
-export function mergeMilestones(baseline: BaselineMilestone[], deadlines: NotionDeadline[]): Milestone[] {
-  const out: Milestone[] = [];
-  for (const b of baseline) {
-    const matches = b.deadlineMatch
-      ? deadlines.filter((d) => d.subject === b.subject && b.deadlineMatch!.test(d.title))
-      : [];
-    if (b.requireNotion && matches.length === 0) continue;
-
-    const sources = new Set<MilestoneSource>(b.sources);
-    const notionDates = uniqSorted(matches.map((d) => d.date));
-    let date = b.date;
-    let conflictDates = b.conflictDates;
-
-    if (notionDates.length > 0) {
-      sources.add("notion-deadline");
-      const all = uniqSorted([...(b.date ? [b.date] : []), ...(b.conflictDates ?? []), ...notionDates]);
-      if (all.length > 1) {
-        sources.add("conflict");
-        conflictDates = all;
-        date = b.conflictDates ? null : notionDates[0];
-      } else {
-        date = all[0];
-      }
-    }
-
-    out.push({
-      id: b.id,
-      subject: b.subject,
-      title: b.title,
-      kind: b.kind,
-      date,
-      time: b.time ?? null,
-      place: b.place ?? null,
-      text: b.text ?? null,
-      sources: [...sources],
-      ...(conflictDates && conflictDates.length > 1 ? { conflictDates } : {}),
-      topicIds: matches.map((d) => d.topicId),
-      linkOut: b.linkOut,
-      progress: null,
-    });
-  }
-  return out;
+export function matchProgressTopics(
+  titles: string[],
+  topics: Pick<Topic, "id" | "title" | "hotovo" | "nauceno">[],
+): Progress & { items: ProgressItem[] } {
+  const items = titles.map((title): ProgressItem => {
+    const want = norm(title);
+    const topic =
+      topics.find((t) => norm(t.title) === want) ??
+      topics.find((t) => norm(t.title).includes(want)) ??
+      topics.find((t) => norm(t.title).length >= 4 && want.includes(norm(t.title)));
+    return { title, topicId: topic?.id ?? null, done: topic ? isLearned(topic) : false };
+  });
+  return { ...progressOf(items.filter((i) => i.done).length, items.length), items };
 }
 
-/** Dates a milestone may fall on: the date, or every conflicting one. */
+export function progressTitles(row: Pick<MilnikyRow, "progressTemata">): string[] {
+  return (row.progressTemata ?? "")
+    .split(/\r?\n/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+const KINDS: readonly MilestoneKind[] = ["zapocet", "zkouska", "test", "odevzdani", "soft", "dochazka", "cviceni"];
+
+function subjectCode(predmet: string | null): SubjectCode | null {
+  if (!predmet) return null;
+  const p = norm(predmet);
+  return SUBJECTS.find((s) => norm(s.name) === p || norm(s.code) === p)?.code ?? null;
+}
+
+/** "08:45" from a Notion datetime start, when the date itself carries a time. */
+function timeFromDatum(datum: string | null): string | null {
+  const m = datum ? /T(\d{2}:\d{2})/.exec(datum) : null;
+  return m ? m[1] : null;
+}
+
+function parseConflict(csv: string | null): string[] {
+  const dates = (csv ?? "")
+    .split(/[,;\s]+/)
+    .map((d) => d.trim())
+    .filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d));
+  return [...new Set(dates)].sort();
+}
+
+/**
+ * One Milníky row to a Timeline card. Returns null for inactive rows and rows
+ * whose Předmět is not one of the 6 subjects. Never invents a date: an empty
+ * Datum stays a soft row.
+ */
+export function milnikyRowToMilestone(row: MilnikyRow): Milestone | null {
+  if (!row.aktivni) return null;
+  const subject = subjectCode(row.predmet);
+  if (!subject) return null;
+
+  const date = toDateOnly(row.datum);
+  const conflict = parseConflict(row.konfliktData);
+  const hasConflict = conflict.length >= 2;
+
+  return {
+    id: row.id,
+    subject,
+    title: row.nazev.trim() || "(bez názvu)",
+    kind: KINDS.includes(row.typ as MilestoneKind) ? (row.typ as MilestoneKind) : date ? "test" : "soft",
+    date,
+    time: row.cas?.trim() || timeFromDatum(row.datum),
+    place: row.misto?.trim() || null,
+    softText: row.softText?.trim() || null,
+    note: row.poznamka?.trim() || null,
+    sources: ["notion-milniky", ...(hasConflict ? (["conflict"] as const) : [])],
+    ...(hasConflict ? { conflictDates: conflict } : {}),
+    order: row.poradi,
+    topicIds: [],
+    linkOut: [
+      ...(row.linkPlan ? [{ label: "Otevřít plán", href: row.linkPlan }] : []),
+      ...(row.url ? [{ label: "Notion", href: row.url }] : []),
+    ],
+    progress: null,
+  };
+}
+
+/** Dates a milestone may fall on: every conflicting one, or the date. */
 function datesOf(m: Pick<Milestone, "date" | "conflictDates">): string[] {
   return m.conflictDates?.length ? m.conflictDates : m.date ? [m.date] : [];
 }
@@ -127,11 +126,10 @@ export function groupOf(m: Pick<Milestone, "date" | "conflictDates">, today: str
 
 const GROUP_ORDER: Record<MilestoneGroup, number> = { upcoming: 0, soft: 1, past: 2 };
 
-/** Upcoming (soonest first), then soft (no day), then past (most recent first). */
-export function sortMilestones<T extends Pick<Milestone, "date" | "conflictDates" | "subject" | "title">>(
-  list: T[],
-  today: string,
-): T[] {
+type Sortable = Pick<Milestone, "date" | "conflictDates" | "subject" | "title"> & { order?: number | null };
+
+/** Upcoming (soonest first), then soft (no day), then past (most recent first). Pořadí breaks ties. */
+export function sortMilestones<T extends Sortable>(list: T[], today: string): T[] {
   return [...list].sort((a, b) => {
     const ga = groupOf(a, today);
     const gb = groupOf(b, today);
@@ -139,36 +137,55 @@ export function sortMilestones<T extends Pick<Milestone, "date" | "conflictDates
     const da = datesOf(a)[0] ?? "";
     const db = datesOf(b)[0] ?? "";
     const byDate = ga === "past" ? db.localeCompare(da) : da.localeCompare(db);
-    return byDate || a.subject.localeCompare(b.subject) || a.title.localeCompare(b.title, "cs");
+    return (
+      byDate ||
+      (a.order ?? Infinity) - (b.order ?? Infinity) ||
+      a.subject.localeCompare(b.subject) ||
+      a.title.localeCompare(b.title, "cs")
+    );
   });
 }
 
-export function subjectPageUrl(subject: SubjectCode): string | null {
-  const s = SUBJECTS.find((x) => x.code === subject);
-  return s ? `https://www.notion.so/${s.pageId.replace(/-/g, "")}` : null;
+export type StudyPhase = "A" | "A-done" | "B";
+
+/** Fáze A until the rule's cutover while titles are unlearned, "A-done" when all are, "B" afterwards. */
+export function studyPhase(m: Pick<Milestone, "subject" | "title" | "progress">, today: string): StudyPhase | null {
+  const rule = PHASE_RULES.find((r) => r.subject === m.subject && r.title.test(m.title));
+  if (!rule) return null;
+  if (today > rule.phaseAEnd) return "B";
+  return m.progress && m.progress.total > 0 && m.progress.done === m.progress.total ? "A-done" : "A";
 }
 
-export type TimelineEntry = Milestone & { math?: MathTest2Progress };
+export type Timeline = {
+  milestones: Milestone[];
+  /** Rows skipped because Předmět is not one of the 6 subjects. */
+  skipped: string[];
+};
 
-/** Baseline + live Deadlines, with progress and links, sorted. Read-only: no Notion calls. */
-export function buildTimeline(topics: Topic[], today: string, baseline: BaselineMilestone[] = BASELINE): TimelineEntry[] {
-  const rules = new Map(baseline.map((b) => [b.id, b.progress]));
-  const entries = mergeMilestones(baseline, notionDeadlines(topics)).map((m): TimelineEntry => {
-    const rule = rules.get(m.id);
-    const notion = subjectPageUrl(m.subject);
-    const linkOut = [...(m.linkOut ?? []), ...(notion ? [{ label: "Notion", href: notion }] : [])];
+/**
+ * Timeline cards from Notion Milníky, with progress from the already loaded topics. Topics never become
+ * cards here: Témata Deadline is the study plan, not an exam.
+ */
+export function buildTimeline(topics: Topic[], milniky: MilnikyResponse, today: string): Timeline {
+  const skipped: string[] = [];
+  const milestones: Milestone[] = [];
 
-    if (rule === "math-test-2") {
-      const math = mathTest2Progress(topics);
-      const ids = [...new Set([...m.topicIds, ...math.bundles.flatMap((b) => b.topicIds)])];
-      return { ...m, linkOut, topicIds: ids, progress: { total: math.total, done: math.done, pct: math.pct }, math };
+  for (const row of milniky.rows) {
+    const m = milnikyRowToMilestone(row);
+    if (!m) {
+      if (row.aktivni) skipped.push(row.nazev);
+      continue;
     }
-    if (rule === "subject") {
-      const mine = topics.filter((t) => t.subject === m.subject);
-      const ids = [...new Set([...m.topicIds, ...mine.map((t) => t.id)])];
-      return { ...m, linkOut, topicIds: ids, progress: mine.length ? subjectProgress(mine) : null };
+    const titles = progressTitles(row);
+    if (titles.length > 0) {
+      const progress = matchProgressTopics(
+        titles,
+        topics.filter((t) => t.subject === m.subject),
+      );
+      m.progress = progress;
+      m.topicIds = progress.items.flatMap((i) => (i.topicId ? [i.topicId] : []));
     }
-    return { ...m, linkOut };
-  });
-  return sortMilestones(entries, today);
+    milestones.push(m);
+  }
+  return { milestones: sortMilestones(milestones, today), skipped };
 }

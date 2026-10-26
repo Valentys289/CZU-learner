@@ -8,6 +8,8 @@ import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { extname, join, normalize, sep } from "node:path";
 import { API_PREFIX, createApiHandler } from "../src/server/notionApi";
+import { MILNIKY } from "../src/notion/config";
+import { checkForUpdates } from "./update";
 
 const APP_TITLE = "ČZU Study Dashboard";
 const isDev = !app.isPackaged;
@@ -19,13 +21,25 @@ const tokenFile = () => join(app.getPath("userData"), "notion-token.bin");
 
 let cachedToken: string | undefined;
 
-function tokenFromEnvFile(path: string): string | undefined {
+function envValue(path: string, key: string): string | undefined {
   try {
-    const m = /^\s*NOTION_TOKEN\s*=\s*["']?([^\s"'#]+)/m.exec(readFileSync(path, "utf8"));
+    const m = new RegExp(`^\\s*${key}\\s*=\\s*["']?([^\\s"'#]+)`, "m").exec(readFileSync(path, "utf8"));
     return m?.[1];
   } catch {
     return undefined;
   }
+}
+
+const tokenFromEnvFile = (path: string) => envValue(path, "NOTION_TOKEN");
+
+/** Dev only: NOTION_MILNIKY_DB from the clone's .env.local, to try a Milníky DB before its ID is in config. */
+function milnikyOverride(): string | null {
+  if (!isDev) return null;
+  for (const name of [".env.local", ".env"]) {
+    const v = envValue(join(appRoot, name), "NOTION_MILNIKY_DB");
+    if (v) return v;
+  }
+  return null;
 }
 
 /** The only .env files we ever look at: the clone we run from (dev) and ~/CZU-learner. */
@@ -96,7 +110,7 @@ async function serveStatic(urlPath: string, res: ServerResponse) {
 }
 
 async function startServer(): Promise<{ server: Server; origin: string }> {
-  const api = createApiHandler(getToken);
+  const api = createApiHandler(getToken, undefined, milnikyOverride() ?? MILNIKY.databaseId);
   let origin = "";
   let vite: { middlewares: (req: IncomingMessage, res: ServerResponse, next: () => void) => void } | undefined;
 
@@ -189,6 +203,7 @@ function buildMenu() {
       label: app.name,
       submenu: [
         { role: "about" },
+        { label: "Zkontrolovat aktualizace…", click: () => void checkForUpdates(mainWindow, false) },
         { type: "separator" },
         {
           label: "Změnit Notion token…",
@@ -245,6 +260,8 @@ app.whenReady().then(async () => {
   }
   buildMenu();
   createWindow();
+  // Quiet check on launch; only speaks up when a newer release exists.
+  if (!isDev) setTimeout(() => void checkForUpdates(mainWindow, true), 5000);
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });

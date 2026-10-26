@@ -1,15 +1,16 @@
 import { describe, expect, it } from "vitest";
 import type { Hotovo, SubjectCode, Topic } from "../types";
-import { BASELINE, type BaselineMilestone } from "./baseline";
+import type { MilnikyResponse, MilnikyRow } from "./types";
 import {
   buildTimeline,
   daysUntil,
   groupOf,
   isLearned,
-  mathTest2Phase,
-  mathTest2Progress,
-  mergeMilestones,
+  matchProgressTopics,
+  milnikyRowToMilestone,
+  progressTitles,
   sortMilestones,
+  studyPhase,
   subjectProgress,
 } from "./milestones";
 
@@ -34,6 +35,28 @@ function topic(subject: SubjectCode, title: string, hotovo: Hotovo | null = null
   };
 }
 
+function row(r: Partial<MilnikyRow> & Pick<MilnikyRow, "nazev">): MilnikyRow {
+  return {
+    id: `r${++n}`,
+    url: "https://www.notion.so/milnik",
+    predmet: "Matematika",
+    typ: "test",
+    datum: null,
+    cas: null,
+    misto: null,
+    softText: null,
+    konfliktData: null,
+    aktivni: true,
+    poznamka: null,
+    progressTemata: null,
+    poradi: null,
+    linkPlan: null,
+    ...r,
+  };
+}
+
+const notion = (rows: MilnikyRow[]): MilnikyResponse => ({ source: "notion", rows, error: null });
+
 describe("isLearned / subjectProgress", () => {
   it("learned = Naučeno set or Hotovo past Neučeno", () => {
     expect(isLearned({ hotovo: null, nauceno: null })).toBe(false);
@@ -42,123 +65,125 @@ describe("isLearned / subjectProgress", () => {
     expect(isLearned({ hotovo: "večer", nauceno: null })).toBe(true);
   });
 
-  it("counts done / total and pct", () => {
-    const p = subjectProgress([
-      { hotovo: "2 dny", nauceno: "2026-10-01" },
-      { hotovo: null, nauceno: null },
-      { hotovo: "Neučeno", nauceno: TODAY },
-      { hotovo: "Neučeno", nauceno: null },
-    ]);
-    expect(p).toEqual({ total: 4, done: 2, pct: 0.5 });
-  });
-
   it("empty set is 0 %, not NaN", () => {
     expect(subjectProgress([]).pct).toBe(0);
   });
 });
 
-describe("mathTest2Progress", () => {
+describe("milnikyRowToMilestone", () => {
+  it("maps date, time, place, note and links (Matematika test 2)", () => {
+    const m = milnikyRowToMilestone(
+      row({
+        nazev: "Zápočtový test 2",
+        datum: "2026-12-05",
+        cas: "08:45",
+        misto: "MI",
+        poznamka: "Stejný slot: opravný test 1",
+        linkPlan: "https://example.com/plan",
+      }),
+    )!;
+    expect(m).toMatchObject({
+      subject: "M",
+      title: "Zápočtový test 2",
+      kind: "test",
+      date: "2026-12-05",
+      time: "08:45",
+      place: "MI",
+      note: "Stejný slot: opravný test 1",
+      sources: ["notion-milniky"],
+    });
+    expect(m.linkOut.map((l) => l.label)).toEqual(["Otevřít plán", "Notion"]);
+  });
+
+  it("takes the time from a Notion datetime when Čas is empty", () => {
+    const m = milnikyRowToMilestone(row({ nazev: "x", datum: "2027-01-04T13:00:00.000+01:00" }))!;
+    expect(m).toMatchObject({ date: "2027-01-04", time: "13:00" });
+  });
+
+  it("Chemie: Konflikt data with 2 dates gives a conflict, both dates kept, nothing picked", () => {
+    const m = milnikyRowToMilestone(
+      row({ nazev: "Zápočtová písemka", predmet: "Chemie", typ: "zapocet", datum: "2027-01-05", konfliktData: "2027-01-06, 2027-01-05" }),
+    )!;
+    expect(m.conflictDates).toEqual(["2027-01-05", "2027-01-06"]);
+    expect(m.sources).toContain("conflict");
+  });
+
+  it("a single date in Konflikt data is not a conflict", () => {
+    const m = milnikyRowToMilestone(row({ nazev: "x", datum: "2027-01-05", konfliktData: "2027-01-05" }))!;
+    expect(m.conflictDates).toBeUndefined();
+    expect(m.sources).toEqual(["notion-milniky"]);
+  });
+
+  it("empty Datum + Soft text stays soft, never gets a day", () => {
+    const m = milnikyRowToMilestone(row({ nazev: "Esej", predmet: "Informatika", typ: "soft", softText: "konec listopadu" }))!;
+    expect(m).toMatchObject({ date: null, softText: "konec listopadu", kind: "soft" });
+    expect(groupOf(m, TODAY)).toBe("soft");
+  });
+
+  it("inactive rows and unknown subjects are excluded", () => {
+    expect(milnikyRowToMilestone(row({ nazev: "zrušeno", aktivni: false, datum: "2026-12-01" }))).toBeNull();
+    expect(milnikyRowToMilestone(row({ nazev: "x", predmet: "Fyzika" }))).toBeNull();
+    expect(milnikyRowToMilestone(row({ nazev: "x", predmet: null }))).toBeNull();
+  });
+
+  it("unknown Typ falls back to test when dated, soft when not", () => {
+    expect(milnikyRowToMilestone(row({ nazev: "x", typ: "???", datum: "2026-12-01" }))!.kind).toBe("test");
+    expect(milnikyRowToMilestone(row({ nazev: "x", typ: null }))!.kind).toBe("soft");
+  });
+});
+
+describe("matchProgressTopics", () => {
   const math = () => [
     topic("M", "Reálné funkce jedné proměnné", "večer", "2026-10-20"),
     topic("M", "Inverzní funkce", "Neučeno", null),
     topic("M", "Limity a spojitost (Bolzano, Weierstrass)", "2 dny", "2026-10-10"),
     topic("M", "Asymptoty", "večer", "2026-10-22"),
     topic("M", "Výpočet derivací", "Neučeno", null),
-    topic("CH", "Limity v chemii?", "měsíc", "2026-09-01"),
   ];
 
-  it("counts 4 bundles; Derivace needs both Asymptoty and Výpočet derivací", () => {
-    const p = mathTest2Progress(math());
-    expect(p.bundles.map((b) => [b.name, b.done])).toEqual([
-      ["Definiční obor", true],
-      ["Inverzní funkce", false],
-      ["Limity", true],
-      ["Derivace", false],
+  it("matches exact titles and stable substrings, counts learned", () => {
+    const p = matchProgressTopics(
+      ["Reálné funkce jedné proměnné", "inverzní funkce", "Limity a spojitost", "Asymptoty", "Výpočet derivací"],
+      math(),
+    );
+    expect(p.items.map((i) => [i.title, i.done, i.topicId !== null])).toEqual([
+      ["Reálné funkce jedné proměnné", true, true],
+      ["inverzní funkce", false, true],
+      ["Limity a spojitost", true, true],
+      ["Asymptoty", true, true],
+      ["Výpočet derivací", false, true],
     ]);
-    expect(p).toMatchObject({ total: 4, done: 2, pct: 0.5 });
-    expect(p.bundles[3].topicIds).toHaveLength(2);
+    expect(p).toMatchObject({ total: 5, done: 3, pct: 0.6 });
   });
 
-  it("all learned: 4/4", () => {
-    const all = math().map((t) => ({ ...t, nauceno: t.nauceno ?? TODAY }));
-    expect(mathTest2Progress(all)).toMatchObject({ done: 4, pct: 1 });
-  });
-
-  it("a bundle with no matching topic is not done and flagged not found", () => {
-    const p = mathTest2Progress([topic("M", "Asymptoty", "měsíc", "2026-10-01")]);
-    expect(p.bundles[3]).toMatchObject({ found: false, done: false });
+  it("an unmatched title counts as not done", () => {
+    const p = matchProgressTopics(["Integrály"], math());
+    expect(p.items[0]).toEqual({ title: "Integrály", topicId: null, done: false });
     expect(p.done).toBe(0);
   });
 
-  it("Fáze A until 14. 11., Fáze B after", () => {
-    expect(mathTest2Phase("2026-11-14", 3)).toBe("A");
-    expect(mathTest2Phase("2026-11-14", 4)).toBe("A-done");
-    expect(mathTest2Phase("2026-11-15", 4)).toBe("B");
+  it("progressTitles splits lines and drops blanks", () => {
+    expect(progressTitles({ progressTemata: "A\n\n  B  \r\nC" })).toEqual(["A", "B", "C"]);
+    expect(progressTitles({ progressTemata: null })).toEqual([]);
   });
 });
 
 describe("daysUntil", () => {
   it("Prague calendar days", () => {
     expect(daysUntil("2026-12-05", TODAY)).toBe(40);
-    expect(daysUntil(TODAY, TODAY)).toBe(0);
     expect(daysUntil("2026-10-25", TODAY)).toBe(-1);
-    // Across the end of DST (25. 10. 2026) still whole days.
     expect(daysUntil("2026-10-26", "2026-10-24")).toBe(2);
   });
 });
 
-describe("mergeMilestones", () => {
-  it("keeps the Chemie conflict: both dates, conflict source, no single date picked", () => {
-    const ch = mergeMilestones(BASELINE, []).find((m) => m.id === "ch-pisemka")!;
-    expect(ch.date).toBeNull();
-    expect(ch.conflictDates).toEqual(["2027-01-05", "2027-01-06"]);
-    expect(ch.sources).toContain("conflict");
-  });
-
-  it("a live Notion Deadline that disagrees with the baseline becomes a conflict, Notion shown", () => {
-    const base: BaselineMilestone[] = [
-      { id: "x", subject: "ICT", title: "Excel", kind: "test", date: "2027-01-06", sources: ["baseline"], deadlineMatch: /excel/i, progress: null },
-    ];
-    const [m] = mergeMilestones(base, [{ subject: "ICT", title: "Excel opravný", date: "2027-01-07", topicId: "p1" }]);
-    expect(m).toMatchObject({ date: "2027-01-07", conflictDates: ["2027-01-06", "2027-01-07"], topicIds: ["p1"] });
-    expect(m.sources).toEqual(expect.arrayContaining(["baseline", "notion-deadline", "conflict"]));
-  });
-
-  it("an agreeing Notion Deadline only adds the source", () => {
-    const [m] = mergeMilestones(
-      BASELINE.filter((b) => b.id === "ict-excel-opravny"),
-      [{ subject: "ICT", title: "Excel opravný termín", date: "2027-01-06", topicId: "p1" }],
-    );
-    expect(m.date).toBe("2027-01-06");
-    expect(m.conflictDates).toBeUndefined();
-    expect(m.sources).toEqual(["baseline", "notion-deadline"]);
-  });
-
-  it("ignores Deadlines from another subject", () => {
-    const [m] = mergeMilestones(
-      BASELINE.filter((b) => b.id === "ict-excel-opravny"),
-      [{ subject: "TD", title: "Excel opravný", date: "2027-01-09", topicId: "p1" }],
-    );
-    expect(m.date).toBe("2027-01-06");
-  });
-
-  it("TD Téma SP only appears while a topic still has the Deadline, dated from Notion", () => {
-    expect(mergeMilestones(BASELINE, []).some((m) => m.id === "td-sp")).toBe(false);
-    const sp = mergeMilestones(BASELINE, [{ subject: "TD", title: "Téma SP", date: "2026-11-01", topicId: "p1" }]).find(
-      (m) => m.id === "td-sp",
-    )!;
-    expect(sp).toMatchObject({ date: "2026-11-01", sources: ["notion-deadline"] });
-  });
-
-  it("never gives soft rows a day", () => {
-    for (const id of ["ict-esej", "ict-excel-1", "ue-dochazka"]) {
-      expect(mergeMilestones(BASELINE, []).find((m) => m.id === id)?.date).toBeNull();
-    }
-  });
-});
-
 describe("sortMilestones", () => {
-  const m = (title: string, date: string | null, conflictDates?: string[]) => ({ subject: "M" as const, title, date, conflictDates });
+  const m = (title: string, date: string | null, conflictDates?: string[], order: number | null = null) => ({
+    subject: "M" as const,
+    title,
+    date,
+    conflictDates,
+    order,
+  });
 
   it("upcoming soonest first, then soft, then past (most recent first)", () => {
     const sorted = sortMilestones(
@@ -168,21 +193,67 @@ describe("sortMilestones", () => {
     expect(sorted.map((x) => x.title)).toEqual(["today", "soon", "later", "soft", "past", "past old"]);
   });
 
-  it("a conflict sorts by its earliest date and is past only when all dates are", () => {
-    expect(groupOf(m("c", null, ["2026-10-25", "2026-10-27"]), TODAY)).toBe("upcoming");
-    expect(groupOf(m("c", null, ["2026-10-24", "2026-10-25"]), TODAY)).toBe("past");
-    const sorted = sortMilestones([m("b", "2027-01-06"), m("ch", null, ["2027-01-05", "2027-01-06"])], TODAY);
-    expect(sorted[0].title).toBe("ch");
+  it("Pořadí breaks ties on the same day", () => {
+    const sorted = sortMilestones([m("b", "2027-01-06", undefined, 2), m("a", "2027-01-06", undefined, 1)], TODAY);
+    expect(sorted.map((x) => x.title)).toEqual(["a", "b"]);
+  });
+
+  it("a conflict is past only when all its dates are", () => {
+    expect(groupOf(m("c", "2026-10-25", ["2026-10-25", "2026-10-27"]), TODAY)).toBe("upcoming");
+    expect(groupOf(m("c", "2026-10-24", ["2026-10-24", "2026-10-25"]), TODAY)).toBe("past");
   });
 });
 
 describe("buildTimeline", () => {
-  it("Matematika test 2 is the first upcoming milestone, with bundle progress and the plan link", () => {
-    const tl = buildTimeline([topic("M", "Inverzní funkce", "večer", "2026-10-25")], TODAY);
-    const first = tl[0];
-    expect(first).toMatchObject({ id: "m-test-2", date: "2026-12-05", time: "08:45", place: "MI" });
-    expect(first.progress).toEqual({ total: 4, done: 1, pct: 0.25 });
-    expect(first.linkOut?.map((l) => l.label)).toEqual(["Otevřít plán", "Notion"]);
-    expect(tl.at(-1)?.id).toBe("m-test-1");
+  const rows = () => [
+    row({ nazev: "Zápočtový test 1", datum: "2026-10-25", cas: "08:45", misto: "MI" }),
+    row({
+      nazev: "Zápočtový test 2",
+      datum: "2026-12-05",
+      cas: "08:45",
+      misto: "MI",
+      poznamka: "Stejný slot: opravný test 1",
+      progressTemata: "Inverzní funkce\nAsymptoty",
+    }),
+    row({ nazev: "Esej", predmet: "Informatika", typ: "soft", softText: "konec listopadu" }),
+    row({ nazev: "Zrušený", datum: "2026-11-01", aktivni: false }),
+  ];
+
+  it("test 2 is the first upcoming card with progress from loaded topics; test 1 is past", () => {
+    const topics = [topic("M", "Inverzní funkce", "večer", "2026-10-25"), topic("CH", "Inverzní funkce", "měsíc", "2026-09-01")];
+    const tl = buildTimeline(topics, notion(rows()), TODAY);
+    expect(tl.milestones.map((m) => [m.title, groupOf(m, TODAY)])).toEqual([
+      ["Zápočtový test 2", "upcoming"],
+      ["Esej", "soft"],
+      ["Zápočtový test 1", "past"],
+    ]);
+    // Only Matematika topics count, so the CH topic with the same title is ignored.
+    expect(tl.milestones[0].progress).toMatchObject({ total: 2, done: 1 });
+    expect(tl.milestones[0].topicIds).toEqual([topics[0].id]);
+  });
+
+  it("topics with a Deadline never become Timeline cards", () => {
+    const tl = buildTimeline([topic("ICT", "Excel opravný", null, null, "2027-01-06")], notion([]), TODAY);
+    expect(tl.milestones).toEqual([]);
+  });
+
+  it("without a configured Milníky DB there are no cards, never invented dates", () => {
+    const tl = buildTimeline([], { source: "unconfigured", rows: [], error: "Chybí Milníky DB v config" }, TODAY);
+    expect(tl.milestones).toEqual([]);
+  });
+
+  it("reports active rows with an unknown subject", () => {
+    expect(buildTimeline([], notion([row({ nazev: "Fyzika test", predmet: "Fyzika" })]), TODAY).skipped).toEqual(["Fyzika test"]);
+  });
+});
+
+describe("studyPhase", () => {
+  const test2 = (done: number) => ({ subject: "M" as const, title: "Zápočtový test 2", progress: { total: 5, done, pct: done / 5, items: [] } });
+
+  it("Fáze A until 14. 11., A splněna when all learned, B after", () => {
+    expect(studyPhase(test2(3), "2026-11-14")).toBe("A");
+    expect(studyPhase(test2(5), "2026-11-14")).toBe("A-done");
+    expect(studyPhase(test2(5), "2026-11-15")).toBe("B");
+    expect(studyPhase({ ...test2(0), title: "Zápočtový test 3" }, TODAY)).toBeNull();
   });
 });

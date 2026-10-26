@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { fetchAllTopics, pageToTopic, undoTopic, updateTopic, writePropsToNotion } from "./client";
-import { SUBJECTS } from "./config";
+import { fetchAllTopics, fetchMilniky, pageToMilnikyRow, pageToTopic, undoTopic, updateTopic, writePropsToNotion } from "./client";
+import { MILNIKY, SUBJECTS } from "./config";
 
 const chemie = SUBJECTS.find((s) => s.code === "CH")!;
 
@@ -57,7 +57,7 @@ describe("fetchAllTopics request routing", () => {
   const empty = { object: "list", results: [], has_more: false, next_cursor: null };
   const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status });
 
-  it("queries every subject by database block ID, never by collection ID", async () => {
+  it("queries every subject and Milníky by database block ID, never by collection ID", async () => {
     const fetchMock = vi.fn(async (_url: string, _init?: RequestInit) => json({ ...empty, results: [page] }));
     vi.stubGlobal("fetch", fetchMock);
 
@@ -66,8 +66,10 @@ describe("fetchAllTopics request routing", () => {
 
     expect(res.errors).toEqual([]);
     expect(res.topics).toHaveLength(SUBJECTS.length);
-    expect(urls).toEqual(SUBJECTS.map((s) => `https://api.notion.com/v1/databases/${s.databaseId}/query`));
-    for (const s of SUBJECTS) expect(urls.join()).not.toContain(s.collectionId);
+    expect(urls).toEqual(
+      [...SUBJECTS, MILNIKY].map((s) => `https://api.notion.com/v1/databases/${s.databaseId}/query`),
+    );
+    for (const s of [...SUBJECTS, MILNIKY]) expect(urls.join()).not.toContain(s.collectionId);
   });
 
   it("resolves the real data source when the legacy endpoint refuses the database", async () => {
@@ -215,5 +217,95 @@ describe("fetchAllTopics when nothing loads", () => {
       vi.fn(async () => new Response(JSON.stringify({ code: "unauthorized", message: "API token is invalid." }), { status: 401 })),
     );
     await expect(fetchAllTopics("tok")).rejects.toMatchObject({ status: 401 });
+  });
+});
+
+describe("Milníky DB", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  const rt = (text: string) => ({ type: "rich_text", rich_text: [{ plain_text: text }] });
+  const milnik = {
+    object: "page" as const,
+    id: "m1",
+    url: "https://www.notion.so/m1",
+    properties: {
+      Název: { type: "title", title: [{ plain_text: "Zápočtový test 2" }] },
+      Předmět: { type: "select", select: { name: "Matematika" } },
+      Typ: { type: "select", select: { name: "test" } },
+      Datum: { type: "date", date: { start: "2026-12-05" } },
+      Čas: rt("08:45"),
+      Místo: rt("MI"),
+      "Soft text": { type: "rich_text", rich_text: [] },
+      "Konflikt data": { type: "rich_text", rich_text: [] },
+      Aktivní: { type: "checkbox", checkbox: true },
+      Poznámka: rt("Stejný slot: opravný test 1"),
+      "Progress témata": rt("Inverzní funkce\nAsymptoty"),
+      Pořadí: { type: "number", number: null },
+      "Link plán": { type: "url", url: "https://example.com/plan" },
+    },
+  };
+
+  it("maps a Milníky page to a row", () => {
+    expect(pageToMilnikyRow(milnik)).toEqual({
+      id: "m1",
+      url: "https://www.notion.so/m1",
+      nazev: "Zápočtový test 2",
+      predmet: "Matematika",
+      typ: "test",
+      datum: "2026-12-05",
+      cas: "08:45",
+      misto: "MI",
+      softText: null,
+      konfliktData: null,
+      aktivni: true,
+      poznamka: "Stejný slot: opravný test 1",
+      progressTemata: "Inverzní funkce\nAsymptoty",
+      poradi: null,
+      linkPlan: "https://example.com/plan",
+    });
+  });
+
+  it("a missing Aktivní property counts as active", () => {
+    const { Aktivní: _, ...rest } = milnik.properties;
+    expect(pageToMilnikyRow({ ...milnik, properties: rest }).aktivni).toBe(true);
+  });
+
+  it("without a configured ID: no request, a clear Czech error", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    expect(await fetchMilniky("tok", null)).toEqual({
+      source: "unconfigured",
+      rows: [],
+      error: "Chybí Milníky DB v config, DEKAN doplní ID",
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("queries the configured DB by block ID; a failure is reported, not replaced by invented dates", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) =>
+        url.includes("milniky-db")
+          ? new Response(JSON.stringify({ results: [milnik], has_more: false, next_cursor: null }))
+          : new Response(JSON.stringify({ message: "nope" }), { status: 404 }),
+      ),
+    );
+    const ok = await fetchMilniky("tok", "milniky-db");
+    expect(ok).toMatchObject({ source: "notion", error: null });
+    expect(ok.rows).toHaveLength(1);
+
+    const bad = await fetchMilniky("tok", "other-db");
+    expect(bad).toEqual({ source: "notion", rows: [], error: "Milníky se nenačetly: nope" });
+  });
+
+  it("fetchAllTopics includes Milníky in the same pass", async () => {
+    const fetchMock = vi.fn(async (url: string) =>
+      new Response(JSON.stringify({ results: url.includes("milniky-db") ? [milnik] : [page], has_more: false, next_cursor: null })),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const res = await fetchAllTopics("tok", undefined, "milniky-db");
+    expect(res.milniky.rows.map((r) => r.nazev)).toEqual(["Zápočtový test 2"]);
+    expect(res.topics).toHaveLength(SUBJECTS.length);
+    expect(fetchMock).toHaveBeenCalledTimes(SUBJECTS.length + 1);
   });
 });

@@ -77,3 +77,30 @@ export const PROP = {
   poradi: "Pořadí",
   odkaz: "Odkaz",
 } as const;
+
+/**
+ * Notion Milníky DB (Fáze 5): tests, zápočty, deadlines and soft terms for the
+ * Timeline, under SČHOOL. Queried by database block ID like the subjects.
+ * In `npm run dev` / `electron:dev`, NOTION_MILNIKY_DB in .env.local overrides it.
+ */
+export const MILNIKY: { databaseId: string | null; collectionId: string | null } = {
+  databaseId: "8407eccc-a370-4006-8b5b-28f4a3071029",
+  collectionId: "ac4c269a-5454-4a2e-8b22-4c5ad2112339",
+};
+
+/** Property names on the Milníky DB. */
+export const MILNIKY_PROP = {
+  nazev: "Název",
+  predmet: "Předmět",
+  typ: "Typ",
+  datum: "Datum",
+  cas: "Čas",
+  misto: "Místo",
+  softText: "Soft text",
+  konfliktData: "Konflikt data",
+  aktivni: "Aktivní",
+  poznamka: "Poznámka",
+  progressTemata: "Progress témata",
+  poradi: "Pořadí",
+  linkPlan: "Link plán",
+} as const;

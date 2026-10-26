@@ -1,4 +1,4 @@
-# ČZU Study Dashboard (Fáze 4)
+# ČZU Study Dashboard (Fáze 5)
 
 A thin, mobile-first web app on top of Honza's Notion school hub (SČHOOL). Notion stays the source of truth: nothing is migrated. Fáze 1 was read-only; Fáze 2 adds two write buttons (**Hotovo**, **Naučeno dnes**) that update a topic's properties in Notion.
 
@@ -7,7 +7,7 @@ A thin, mobile-first web app on top of Honza's Notion school hub (SČHOOL). Noti
 - **Dnes**: topics whose computed `Termín` is today or earlier. Overdue topics first (oldest first, red), then due today. Tap a row to open the topic in Notion.
 - **Předměty**: the 6 subjects with counts *Po termínu / Dnes / Neučeno*. Tap a card to see its due topics and the not-yet-learned topics sorted by `Deadline`.
 - **Hotovo / Naučeno dnes**: one-tap buttons on topic rows (see [Fáze 2](#fáze-2-writes)).
-- **Timeline**: upcoming zápočty, tests and deadlines with a thin progress bar (see [Timeline](#timeline-sources-of-truth)). Read-only.
+- **Timeline**: tests, zápočty and deadlines from the Notion **Milníky** DB, with a thin progress bar (see [Timeline: Milníky z Notion](#timeline-milníky-z-notion)). Read-only.
 
 Stack: Vite + React + TypeScript, Vitest. The Notion token is used only by a small middleware inside the Vite dev/preview server (`/api/topics`), never in the browser.
 
@@ -172,29 +172,68 @@ After a successful **Hotovo** or **Naučeno dnes** a toast shows *Hotovo uložen
 - `POST /api/topics/{id}/undo` refuses (409) if the page changed in Notion since the write, so a change made elsewhere is never overwritten. If undo fails, the app shows the error and reloads from Notion.
 - Formula properties (`Termín`) are never written.
 
-## Timeline: sources of truth
+## Timeline: Milníky z Notion
 
-The Timeline tab makes **no extra Notion calls and no writes**. It reuses the topics already loaded for Dnes and combines them with a static baseline.
+Two kinds of things, kept apart:
 
-| Source | What it gives | Who updates it |
-|--------|---------------|----------------|
-| `src/timeline/baseline.ts` | Verified milestones (baseline 26. 10. 2026): dates, times, places, soft rows | DEKAN, by editing the file when sources change |
-| Notion `Deadline` on topics | Live dates for milestones that declare a `deadlineMatch` (ICT Excel opravný, TD Téma SP) | Honza, in Notion |
-| Notion `Naučeno` / `Hotovo` | Progress bars | Fáze 2 buttons or Notion |
+| | What | Where in the app |
+|---|------|------------------|
+| **Milníky** | Tests, zápočty, odevzdání, soft terms, docházka | Timeline only, as milestone cards |
+| **Témata** | Learning topics (Hotovo, Naučeno, retrieval) | Dnes and Předměty only |
 
-Rules:
+- **Source of truth for dates = Notion DB Milníky** (under SČHOOL). Change a termín there, then *Obnovit* in the app (or reopen it). No code change, no new build.
+- **Termíny ČZU** page = human-readable mirror. The app does not read it.
+- **Témata `Deadline`** = study plan (when to finish learning a topic). It never creates a Timeline card.
+- The Timeline reads Milníky in the same request as the topics (`GET /api/topics` returns `milniky`). Progress comes from the already loaded topics, no extra Notion calls, no writes.
 
-- **No invented days.** A milestone without a concrete day is a soft row (ICT esej "Konec listopadu", Excel "Začátek prosince", UE "Zápočet = docházka") with no date and no countdown.
-- When a live Notion `Deadline` disagrees with the baseline, the card shows **both** dates with a **Konflikt zdrojů** badge, Notion first.
-- TD Téma SP only appears while a TD topic still carries that `Deadline`.
-- Matematika test 2 progress counts 4 bundles (Definiční obor, Inverzní funkce, Limity, Derivace) matched by topic title; Derivace is done only when both Asymptoty and Výpočet derivací are learned. A bundle with no matching topic shows a `?`. Badge Fáze A until 14. 11. 2026, Fáze B after. "Otevřít plán" links out to the test 2 study page.
-- Other progress: "learned" = `Naučeno` set or `Hotovo` past Neučeno. Chemie and AJ count all topics of the subject.
-- Sort: upcoming (soonest first), then Bez data, then Minulé (collapsed, most recent first). A conflict counts as past only when all its dates are.
+### Milníky DB properties
+
+| Property | Type | Used for |
+|----------|------|----------|
+| `Název` | title | Card title |
+| `Předmět` | select | Matematika, Chemie, Informatika, Technická dokumentace, Udržitelná energetika, Angličtina (same names as Předměty). Other values are skipped and listed in a warning. |
+| `Typ` | select | test, zapocet, zkouska, odevzdani, soft, dochazka, cviceni |
+| `Datum` | date | Empty = **Bez data** (soft). A time on the date is used when `Čas` is empty. |
+| `Čas`, `Místo` | text | "08:45", "13:00–14:15"; "MI", "ZII" |
+| `Soft text` | text | The "when" for rows without a day ("konec listopadu") |
+| `Konflikt data` | text | ISO dates separated by commas when sources disagree. 2 or more dates = **Konflikt zdrojů** badge, all dates shown, none picked. |
+| `Aktivní` | checkbox | Unticked rows are hidden. Missing property = active. |
+| `Poznámka` | text | Note line ("Stejný slot: opravný test 1") |
+| `Progress témata` | text | One topic title per line, matched against that subject's Témata (exact, then substring). Empty = no progress bar. Unmatched titles show `?`. |
+| `Pořadí` | number | Tie-break on the same day |
+| `Link plán` | url | "Otevřít plán" link. Every card also links to its Milníky row in Notion. |
+
+Sections: **Blížící se** (soonest first), **Bez data**, **Minulé** (collapsed). A conflict is past only when all its dates are. Matematika test 2 keeps the Fáze A / Fáze B badge (cutover 14. 11. 2026 in `src/timeline/config.ts`, not a date source).
+
+### Wiring the DB (DEKAN)
+
+1. Create the DB under SČHOOL with the properties above, share it with the **ČZU Study Dashboard** connection, seed the rows.
+2. Its database block ID is in `MILNIKY.databaseId` in `src/notion/config.ts` (`8407eccc-a370-4006-8b5b-28f4a3071029`, data source `ac4c269a-5454-4a2e-8b22-4c5ad2112339`).
+3. To point a dev build at another DB: `NOTION_MILNIKY_DB=<database block id>` in `.env.local` (works with `npm run dev` and `npm run electron:dev`).
+
+There is no hardcoded fallback. If the ID is missing the Timeline says "Chybí Milníky DB"; if the DB cannot be read (for example it is not shared with the connection) it shows the error. Either way no invented dates.
 
 ### Chemie conflict
 
-The zápočtová písemka date is **not resolved**: the Chemie page and the 23. 10. lecture summary say **út 5. 1. 2027**, the Termíny ČZU page says **6. 1. 2027**. The card shows "út 5. 1. 2027 / st 6. 1. 2027" with the Konflikt zdrojů badge. Once DEKAN or Honza confirms the real date, set `date` and remove `conflictDates` in `baseline.ts`.
+The zápočtová písemka is **not resolved**: the Chemie page and the 23. 10. lecture summary say **út 5. 1. 2027**, Termíny ČZU says **6. 1. 2027**. In Milníky set `Konflikt data` to `2027-01-05,2027-01-06`; the card shows both dates with Konflikt zdrojů. Once the real date is confirmed, clear `Konflikt data`.
+
+## Updates (Fáze 5b)
+
+The installed app checks for a newer version 5 s after launch (quietly) and from the menu **CZU Study Dashboard → Zkontrolovat aktualizace…**. If a newer GitHub Release exists, it offers **Stáhnout**: the new `.dmg` goes to Stažené soubory and opens; quit the app, drag it over the old one in Applications, start it again.
+
+Why not a silent in-place update: the app is not signed with an Apple Developer ID, and macOS (Squirrel.Mac, used by `electron-updater`) refuses to install updates into unsigned apps. With a Developer ID this can be switched to `electron-updater`.
+
+**Private repo:** GitHub's API does not show releases of a private repo without a login, so the in-app check cannot see them. In that case the menu item opens the Releases page in the browser (where you are logged in) and the quiet launch check stays silent. Making releases visible to the app needs either a public repo or a separate public repo just for releases (change `RELEASES` in `electron/update.ts` and `build.publish` in `package.json`).
+
+### Publishing a release
+
+```text
+bump "version" in package.json → commit → git tag v0.5.0 && git push origin v0.5.0
+→ .github/workflows/release.yml builds on macOS and publishes the GitHub Release (.dmg, .zip, latest-mac.yml)
+```
+
+Or locally on the Mac: `GH_TOKEN=<token with repo access> npm run electron:publish`. Never commit the token.
 
 ## Out of scope
 
-Milestone editing in the app, Moodle/UIS/Drive scraping, undo, snooze or skip, inserting or deleting pages, editing Fáze checklists inside topic pages, Google Calendar, Quizlet/flashcards, UIS/Moodle, auth and Vercel deploy.
+Milestone editing in the app, parsing the Termíny page, Moodle/UIS/Drive scraping, snooze or skip, inserting or deleting pages, editing Fáze checklists inside topic pages, Google Calendar, Quizlet/flashcards, UIS/Moodle, auth and Vercel deploy.
