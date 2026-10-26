@@ -1,4 +1,4 @@
-# ČZU Study Dashboard (Fáze 5)
+# ČZU Study Dashboard (Fáze 6)
 
 A thin, mobile-first web app on top of a Notion school hub (SČHOOL). Notion stays the source of truth: nothing is migrated. Fáze 1 was read-only; Fáze 2 adds two write buttons (**Hotovo**, **Naučeno dnes**) that update a topic's properties in Notion.
 
@@ -6,7 +6,8 @@ A thin, mobile-first web app on top of a Notion school hub (SČHOOL). Notion sta
 
 - **Dnes**: topics whose computed `Termín` is today or earlier. Overdue topics first (oldest first, red), then due today. Tap a row to open the topic in Notion.
 - **Předměty**: the 6 subjects with counts *Po termínu / Dnes / Neučeno*. Tap a card to see its due topics and the not-yet-learned topics sorted by `Deadline`.
-- **Hotovo / Naučeno dnes**: one-tap buttons on topic rows (see [Fáze 2](#fáze-2-writes)).
+- **Naučeno dnes**: one-tap button for first learn (see [Fáze 2](#fáze-2-writes)).
+- **Hotovo / Trénink**: opens a small sheet to log a retrieval session (method + skóre 1 to 5) into the Notion **Tréninky** DB, and on a due topic also advance `Hotovo` (see [Tréninky: metody a skóre](#tréninky-metody-a-skóre)).
 - **Timeline**: tests, zápočty and deadlines from the Notion **Milníky** DB, with a thin progress bar (see [Timeline: Milníky z Notion](#timeline-milníky-z-notion)). Read-only.
 
 Stack: Vite + React + TypeScript, Vitest. The Notion token is used only by a small middleware inside the Vite dev/preview server (`/api/topics`), never in the browser.
@@ -17,7 +18,7 @@ Stack: Vite + React + TypeScript, Vitest. The Notion token is used only by a sma
 
 1. Open <https://www.notion.so/profile/integrations> and click **New integration**.
 2. Workspace: your school workspace. Type: **Internal**. Name it e.g. `ČZU Dashboard`.
-3. Capabilities: **Read content** and **Update content**. Leave **Insert content** off, the app never creates pages.
+3. Capabilities: **Read content**, **Update content** and **Insert content** (Insert is only for new rows in the Tréninky DB, see [Fáze 6](#tréninky-metody-a-skóre)). Leave everything else off.
 4. Save and copy the **Internal Integration Secret** (`ntn_...`).
 
 ### 2. Share the databases with the integration
@@ -33,6 +34,8 @@ If you prefer to share selectively, connect each of these (`•••` → Conne
 - TD Témata (Technická dokumentace)
 - UE Témata (Udržitelná energetika)
 - AJ Témata (Angličtina)
+- Milníky (Timeline)
+- Tréninky (session log)
 
 All IDs live in `src/notion/config.ts`.
 
@@ -41,7 +44,7 @@ All IDs live in `src/notion/config.ts`.
 The existing connection **ČZU Study Dashboard** was created read-only for Fáze 1. Before using the buttons:
 
 1. Open <https://www.notion.so/profile/integrations> and pick **ČZU Study Dashboard**.
-2. Tab **Capabilities**: tick **Update content**, keep **Insert content** off, click **Save**.
+2. Tab **Capabilities**: tick **Update content** and, for Fáze 6, **Insert content**, click **Save**.
 3. The token does not change, so `.env.local` stays as it is. Restart `npm run dev` anyway.
 
 ### 3. Configure and run
@@ -169,6 +172,50 @@ After a successful **Hotovo** or **Naučeno dnes** a toast shows *Hotovo uložen
 - The previous values come from Notion right before the write (`POST /api/topics/{id}/hotovo` returns them), not from the browser's copy.
 - `POST /api/topics/{id}/undo` refuses (409) if the page changed in Notion since the write, so a change made elsewhere is never overwritten. If undo fails, the app shows the error and reloads from Notion.
 - Formula properties (`Termín`) are never written.
+- Fáze 6: after a logged session the toast offers the same Zpět; it also archives the Tréninky row the save created.
+
+## Tréninky: metody a skóre
+
+Fáze 6 replaces the one-shot **Hotovo** with a small session tracker. The source of truth for how a topic was trained and how it went is the Notion **Tréninky** DB (under SČHOOL, next to Předměty and Milníky). The checklists in the topic pages (*3. Retrieval*, *4. Fáze čtyři*) stay human notes: the app never reads, ticks or renames them.
+
+### In the app
+
+- **Hotovo** on a due or overdue row opens the sheet: **Metoda** (Flashcards, Generated Qs, Brain dump, Quizlet, Jiné), **Skóre** 1 to 5 (1 katastrofa, 5 jistý, required), **Datum** (today by default, not in the future), **Posunout gap**, then **Uložit**.
+- **Trénink** on a learned topic that is not due (Předměty, *Ostatní naučená*) opens the same sheet for extra practice.
+- **Hotovo z Quizletu** in the sheet saves with method Quizlet (Skóre still required). Quizlet has no public API: the app never calls, scrapes or embeds Quizlet. If the topic's `Odkaz` is a quizlet.com link, the sheet shows a plain link to it.
+- **Historie** in the sheet lists the topic's last 10 sessions (newest first). Rows show the last skóre as a chip (red 1 and 2, amber 3, green 4 and 5).
+- **Naučeno dnes** stays a one-tap first learn with no session row.
+
+### Hotovo gap rule
+
+| Topic | Posunout gap default | Uložit does |
+|-------|----------------------|-------------|
+| Due today or overdue | **on** | Tréninky row + the Fáze 2 Hotovo advance (`Poslední opakování` = the session day) |
+| Not due (extra practice) | off | Tréninky row only, `Hotovo` / `Poslední opakování` untouched |
+| `Hotovo` = měsíc | off, locked | Tréninky row only |
+
+The toggle can be flipped either way before Uložit. The same method can be logged any number of times, on any day.
+
+### Tréninky DB properties
+
+| Property | Type | Written by the app |
+|----------|------|--------------------|
+| `Název` | title | `{datum} · {metoda} · {téma}` |
+| `Datum` | date | Session day, date only |
+| `Metoda` | select | `flashcards`, `generatedQs`, `brainDump`, `quizlet`, `other` (English keys; Czech labels only in the UI) |
+| `Skóre` | number | 1 to 5 |
+| `Předmět` | select | Subject name as in Předměty |
+| `Téma` | text | Topic title at write time |
+| `Téma page ID` | text | Topic page UUID (the join key) |
+| `Posunul gap` | checkbox | Whether this save advanced Hotovo |
+| `Poznámka` | text | Not written yet (kept for later) |
+| `Zdroj` | select | Always `app` (`manual` for rows added by hand) |
+
+Endpoints: `POST /api/topics/{pageId}/session` with `{ method, score, date?, advanceGap }`, `GET /api/topics/{pageId}/sessions`. The server checks the topic is in one of the 6 Témata DBs, creates the row, then (with Posunout gap) patches the topic. If the topic patch fails, the new row is archived again, so `Posunul gap` never lies. **Zpět** after a session reverts the topic fields and archives the row. To try another DB in dev: `NOTION_TRENINKY_DB=<database block id>` in `.env.local`. Without a configured DB the sheet says "Chybí Tréninky DB" and offers only the old Hotovo.
+
+### Planning from scores
+
+In Notion, filter Tréninky by `Skóre` ≤ 2 (optionally the last 14 days of `Datum`) and group by `Téma` or `Předmět` to see weak topics; group by `Metoda` to see which method works. Tréninky rows never appear on the Timeline and never create dates or pages elsewhere.
 
 ## Timeline: Milníky z Notion
 
@@ -234,4 +281,4 @@ Or locally on the Mac: `GH_TOKEN=<token with repo access> npm run electron:publi
 
 ## Out of scope
 
-Milestone editing in the app, parsing the Termíny page, Moodle/UIS/Drive scraping, snooze or skip, inserting or deleting pages, editing Fáze checklists inside topic pages, Google Calendar, Quizlet/flashcards, UIS/Moodle, auth and Vercel deploy.
+Milestone editing in the app, parsing the Termíny page, Moodle/UIS/Drive scraping, snooze or skip, creating or deleting pages other than Tréninky rows, editing Fáze checklists inside topic pages, suggesting a method or changing gap lengths from skóre, Google Calendar, Quizlet/Anki sync, UIS/Moodle, auth and Vercel deploy.

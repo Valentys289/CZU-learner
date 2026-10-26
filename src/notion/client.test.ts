@@ -1,6 +1,19 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { fetchAllTopics, fetchMilniky, pageToMilnikyRow, pageToTopic, undoTopic, updateTopic, writePropsToNotion } from "./client";
-import { MILNIKY, SUBJECTS } from "./config";
+import {
+  fetchAllTopics,
+  fetchMilniky,
+  fetchSessions,
+  fetchTreninky,
+  logSession,
+  pageToMilnikyRow,
+  pageToSession,
+  pageToTopic,
+  undoSession,
+  undoTopic,
+  updateTopic,
+  writePropsToNotion,
+} from "./client";
+import { MILNIKY, SUBJECTS, TRENINKY } from "./config";
 
 const chemie = SUBJECTS.find((s) => s.code === "CH")!;
 
@@ -57,7 +70,7 @@ describe("fetchAllTopics request routing", () => {
   const empty = { object: "list", results: [], has_more: false, next_cursor: null };
   const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status });
 
-  it("queries every subject and Milníky by database block ID, never by collection ID", async () => {
+  it("queries every subject, Milníky and Tréninky by database block ID, never by collection ID", async () => {
     const fetchMock = vi.fn(async (_url: string, _init?: RequestInit) => json({ ...empty, results: [page] }));
     vi.stubGlobal("fetch", fetchMock);
 
@@ -67,9 +80,9 @@ describe("fetchAllTopics request routing", () => {
     expect(res.errors).toEqual([]);
     expect(res.topics).toHaveLength(SUBJECTS.length);
     expect(urls).toEqual(
-      [...SUBJECTS, MILNIKY].map((s) => `https://api.notion.com/v1/databases/${s.databaseId}/query`),
+      [...SUBJECTS, MILNIKY, TRENINKY].map((s) => `https://api.notion.com/v1/databases/${s.databaseId}/query`),
     );
-    for (const s of [...SUBJECTS, MILNIKY]) expect(urls.join()).not.toContain(s.collectionId);
+    for (const s of [...SUBJECTS, MILNIKY, TRENINKY]) expect(urls.join()).not.toContain(s.collectionId);
   });
 
   it("resolves the real data source when the legacy endpoint refuses the database", async () => {
@@ -303,9 +316,209 @@ describe("Milníky DB", () => {
       new Response(JSON.stringify({ results: url.includes("milniky-db") ? [milnik] : [page], has_more: false, next_cursor: null })),
     );
     vi.stubGlobal("fetch", fetchMock);
-    const res = await fetchAllTopics("tok", undefined, "milniky-db");
+    const res = await fetchAllTopics("tok", undefined, "milniky-db", null);
     expect(res.milniky.rows.map((r) => r.nazev)).toEqual(["Zápočtový test 2"]);
     expect(res.topics).toHaveLength(SUBJECTS.length);
     expect(fetchMock).toHaveBeenCalledTimes(SUBJECTS.length + 1);
+  });
+});
+
+describe("Tréninky DB (Fáze 6)", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+  });
+
+  const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status });
+  const now = new Date("2026-10-26T10:00:00Z");
+  const topicId = "11111111-2222-3333-4444-555555555555";
+  const inChemie = { ...page, id: topicId, parent: { type: "database_id", database_id: chemie.databaseId } };
+  const sessionPage = (over: Record<string, unknown> = {}) => ({
+    object: "page" as const,
+    id: "sess-1",
+    url: "https://www.notion.so/sess-1",
+    parent: { type: "database_id", database_id: "trenink-db" },
+    properties: {
+      Název: { type: "title", title: [{ plain_text: "2026-10-26 · Flashcards · Redoxní reakce" }] },
+      Datum: { type: "date", date: { start: "2026-10-26" } },
+      Metoda: { type: "select", select: { name: "flashcards" } },
+      Skóre: { type: "number", number: 4 },
+      Předmět: { type: "select", select: { name: "Chemie" } },
+      Téma: { type: "rich_text", rich_text: [{ plain_text: "Redoxní reakce" }] },
+      "Téma page ID": { type: "rich_text", rich_text: [{ plain_text: topicId }] },
+      "Posunul gap": { type: "checkbox", checkbox: true },
+      Zdroj: { type: "select", select: { name: "app" } },
+    },
+    ...over,
+  });
+
+  it("maps a Tréninky page to a session", () => {
+    expect(pageToSession(sessionPage())).toEqual({
+      id: "sess-1",
+      topicPageId: topicId,
+      subject: "CH",
+      topicTitle: "Redoxní reakce",
+      date: "2026-10-26",
+      method: "flashcards",
+      score: 4,
+      advancedGap: true,
+    });
+  });
+
+  it("logSession with Posunout gap: creates the row, then advances Hotovo; undo info covers both", async () => {
+    vi.useFakeTimers({ now, toFake: ["Date"] });
+    const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
+      if (init?.method === "POST") return json(sessionPage());
+      if (init?.method === "PATCH") {
+        return json({
+          ...inChemie,
+          properties: {
+            ...inChemie.properties,
+            Hotovo: { type: "select", select: { name: "5 dní" } },
+            "Poslední opakování": { type: "date", date: { start: "2026-10-26" } },
+          },
+        });
+      }
+      return json(inChemie);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const res = await logSession("tok", "trenink-db", topicId, { method: "flashcards", score: 4, advanceGap: true });
+
+    expect(fetchMock.mock.calls.map(([url, init]) => [init?.method, url])).toEqual([
+      ["GET", `https://api.notion.com/v1/pages/${topicId}`],
+      ["POST", "https://api.notion.com/v1/pages"],
+      ["PATCH", `https://api.notion.com/v1/pages/${topicId}`],
+    ]);
+    const created = JSON.parse(fetchMock.mock.calls[1][1]!.body as string);
+    expect(created.parent).toEqual({ database_id: "trenink-db" });
+    expect(created.properties).toMatchObject({
+      Metoda: { select: { name: "flashcards" } },
+      Skóre: { number: 4 },
+      Datum: { date: { start: "2026-10-26" } },
+      Předmět: { select: { name: "Chemie" } },
+      "Téma page ID": { rich_text: [{ text: { content: topicId } }] },
+      "Posunul gap": { checkbox: true },
+      Zdroj: { select: { name: "app" } },
+    });
+    expect(JSON.parse(fetchMock.mock.calls[2][1]!.body as string)).toEqual({
+      properties: { Hotovo: { select: { name: "5 dní" } }, "Poslední opakování": { date: { start: "2026-10-26" } } },
+    });
+    expect(res.topic.hotovo).toBe("5 dní");
+    expect(res.undo).toEqual({
+      previous: { hotovo: "2 dny", posledni: "2026-10-18" },
+      written: { hotovo: "5 dní", posledni: "2026-10-26" },
+      sessionId: "sess-1",
+    });
+  });
+
+  it("logSession without Posunout gap: only the row, Hotovo and Poslední untouched", async () => {
+    vi.useFakeTimers({ now, toFake: ["Date"] });
+    const fetchMock = vi.fn(async (_url: string, init?: RequestInit) =>
+      json(init?.method === "POST" ? sessionPage() : inChemie),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const res = await logSession("tok", "trenink-db", topicId, { method: "quizlet", score: 2, advanceGap: false });
+
+    expect(fetchMock.mock.calls.map(([, init]) => init?.method)).toEqual(["GET", "POST"]);
+    const created = JSON.parse(fetchMock.mock.calls[1][1]!.body as string);
+    expect(created.properties["Posunul gap"]).toEqual({ checkbox: false });
+    expect(created.properties.Metoda).toEqual({ select: { name: "quizlet" } });
+    expect(res.topic).toMatchObject({ hotovo: "2 dny", posledni: "2026-10-18" });
+    expect(res.undo).toEqual({ previous: {}, written: {}, sessionId: "sess-1" });
+  });
+
+  it("archives the new row again when the topic write fails", async () => {
+    vi.useFakeTimers({ now, toFake: ["Date"] });
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (init?.method === "POST") return json(sessionPage());
+      if (init?.method === "PATCH" && url.endsWith(topicId)) return json({ message: "no access" }, 403);
+      if (init?.method === "PATCH") return json({});
+      return json(inChemie);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      logSession("tok", "trenink-db", topicId, { method: "flashcards", score: 3, advanceGap: true }),
+    ).rejects.toMatchObject({ status: 403 });
+    const last = fetchMock.mock.calls.at(-1)!;
+    expect(last[0]).toBe("https://api.notion.com/v1/pages/sess-1");
+    expect(JSON.parse(last[1]!.body as string)).toEqual({ archived: true });
+  });
+
+  it("rejects bad input and a missing DB before any request", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(logSession("tok", "trenink-db", topicId, { method: "flashcards", score: 6, advanceGap: true })).rejects.toMatchObject({
+      status: 400,
+      message: "Skóre musí být 1 až 5",
+    });
+    await expect(logSession("tok", "trenink-db", topicId, { method: "anki", score: 3, advanceGap: true })).rejects.toMatchObject({ status: 400 });
+    await expect(logSession("tok", null, topicId, { method: "flashcards", score: 3, advanceGap: true })).rejects.toMatchObject({
+      status: 503,
+      message: "Chybí Tréninky DB v config, DEKAN doplní ID",
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("refuses Posunout gap on a topic that cannot advance (měsíc), without creating a row", async () => {
+    const done = { ...inChemie, properties: { ...inChemie.properties, Hotovo: { type: "select", select: { name: "měsíc" } } } };
+    const fetchMock = vi.fn(async () => json(done));
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(logSession("tok", "trenink-db", topicId, { method: "brainDump", score: 5, advanceGap: true })).rejects.toMatchObject({
+      status: 409,
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("fetchSessions filters by Téma page ID, newest first, 10 rows", async () => {
+    const fetchMock = vi.fn(async () => json({ results: [sessionPage()], has_more: true, next_cursor: "x" }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const sessions = await fetchSessions("tok", "trenink-db", topicId.replace(/-/g, "").toUpperCase());
+
+    expect(sessions.map((s) => s.id)).toEqual(["sess-1"]);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(JSON.parse((fetchMock.mock.calls[0] as unknown as [string, RequestInit])[1].body as string)).toEqual({
+      page_size: 10,
+      filter: { property: "Téma page ID", rich_text: { equals: topicId } },
+      sorts: [
+        { property: "Datum", direction: "descending" },
+        { timestamp: "created_time", direction: "descending" },
+      ],
+    });
+  });
+
+  it("fetchTreninky: last skóre per topic; unconfigured or failing never throws", async () => {
+    const older = sessionPage({ id: "sess-0" });
+    older.properties.Datum = { type: "date", date: { start: "2026-10-20" } };
+    older.properties.Skóre = { type: "number", number: 1 };
+    vi.stubGlobal("fetch", vi.fn(async () => json({ results: [sessionPage(), older], has_more: false, next_cursor: null })));
+    expect(await fetchTreninky("tok", "trenink-db")).toEqual({
+      configured: true,
+      last: { [topicId]: { date: "2026-10-26", method: "flashcards", score: 4 } },
+      error: null,
+    });
+
+    expect(await fetchTreninky("tok", null)).toEqual({ configured: false, last: {}, error: "Chybí Tréninky DB v config, DEKAN doplní ID" });
+
+    vi.stubGlobal("fetch", vi.fn(async () => json({ message: "Could not find database" }, 404)));
+    expect(await fetchTreninky("tok", "trenink-db")).toMatchObject({ configured: true, error: "Tréninky se nenačetly: Could not find database" });
+  });
+
+  it("undoSession archives only a row of this topic in the Tréninky DB", async () => {
+    const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => json(init?.method === "PATCH" ? {} : sessionPage()));
+    vi.stubGlobal("fetch", fetchMock);
+    await undoSession("tok", "trenink-db", "sess-1", topicId);
+    expect(fetchMock.mock.calls.map(([url, init]) => [init?.method, url])).toEqual([
+      ["GET", "https://api.notion.com/v1/pages/sess-1"],
+      ["PATCH", "https://api.notion.com/v1/pages/sess-1"],
+    ]);
+
+    fetchMock.mockClear();
+    await expect(undoSession("tok", "trenink-db", "sess-1", "99999999-2222-3333-4444-555555555555")).rejects.toMatchObject({ status: 404 });
+    await expect(undoSession("tok", "other-db", "sess-1", topicId)).rejects.toMatchObject({ status: 404 });
+    expect(fetchMock.mock.calls.every(([, init]) => init?.method === "GET")).toBe(true);
   });
 });

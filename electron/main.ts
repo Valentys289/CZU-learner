@@ -8,7 +8,7 @@ import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { extname, join, normalize, sep } from "node:path";
 import { API_PREFIX, createApiHandler } from "../src/server/notionApi";
-import { MILNIKY } from "../src/notion/config";
+import { MILNIKY, TRENINKY } from "../src/notion/config";
 import { checkForUpdates } from "./update";
 
 const APP_TITLE = "ČZU Study Dashboard";
@@ -32,11 +32,11 @@ function envValue(path: string, key: string): string | undefined {
 
 const tokenFromEnvFile = (path: string) => envValue(path, "NOTION_TOKEN");
 
-/** Dev only: NOTION_MILNIKY_DB from the clone's .env.local, to try a Milníky DB before its ID is in config. */
-function milnikyOverride(): string | null {
+/** Dev only: a DB ID override (NOTION_MILNIKY_DB, NOTION_TRENINKY_DB) from the clone's .env.local. */
+function dbOverride(key: string): string | null {
   if (!isDev) return null;
   for (const name of [".env.local", ".env"]) {
-    const v = envValue(join(appRoot, name), "NOTION_MILNIKY_DB");
+    const v = envValue(join(appRoot, name), key);
     if (v) return v;
   }
   return null;
@@ -110,7 +110,12 @@ async function serveStatic(urlPath: string, res: ServerResponse) {
 }
 
 async function startServer(): Promise<{ server: Server; origin: string }> {
-  const api = createApiHandler(getToken, undefined, milnikyOverride() ?? MILNIKY.databaseId);
+  const api = createApiHandler(
+    getToken,
+    undefined,
+    dbOverride("NOTION_MILNIKY_DB") ?? MILNIKY.databaseId,
+    dbOverride("NOTION_TRENINKY_DB") ?? TRENINKY.databaseId,
+  );
   let origin = "";
   let vite: { middlewares: (req: IncomingMessage, res: ServerResponse, next: () => void) => void } | undefined;
 

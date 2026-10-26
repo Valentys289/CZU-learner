@@ -1,9 +1,20 @@
 // Server-side only: runs inside the Vite dev/preview server, never in the browser.
-import { DEFAULT_TIME_ZONE, MILNIKY, MILNIKY_PROP, PROP, SUBJECTS, type SubjectConfig } from "./config";
+import { DEFAULT_TIME_ZONE, MILNIKY, MILNIKY_PROP, PROP, SUBJECTS, TRENINKY, TRENINKY_PROP, type SubjectConfig } from "./config";
 import type { MilnikyResponse, MilnikyRow } from "../timeline/types";
 import { toDateOnly, todayIn, withTermin } from "../lib/termin";
 import { applyAction, buildUndoSnapshot, type TopicAction, type TopicPatch, type TopicWriteProps } from "../lib/hotovo";
 import type { Hotovo, SubjectError, Topic, TopicsResponse } from "../types";
+import {
+  buildSessionRow,
+  isMethod,
+  lastSessionByTopic,
+  parseSessionInput,
+  sessionPatch,
+  toPageId,
+  TRENINKY_MISSING,
+  type TrainingSession,
+  type TreninkyResponse,
+} from "../lib/sessions";
 
 const NOTION_API = "https://api.notion.com/v1";
 const DATA_SOURCE_VERSION = "2025-09-03";
@@ -59,16 +70,21 @@ async function notionRequest<T>(token: string, version: string, method: "GET" | 
   return json as T;
 }
 
-async function queryAll(token: string, version: string, path: string): Promise<NotionPage[]> {
+/** Filter / sorts / size for a query. `limit` set = one page of at most that many rows. */
+type QueryOptions = { filter?: unknown; sorts?: unknown[]; limit?: number };
+
+async function queryAll(token: string, version: string, path: string, opts: QueryOptions = {}): Promise<NotionPage[]> {
   const pages: NotionPage[] = [];
   let cursor: string | null = null;
   do {
     const res: QueryResponse = await notionRequest<QueryResponse>(token, version, "POST", path, {
-      page_size: 100,
+      page_size: Math.min(opts.limit ?? 100, 100),
+      ...(opts.filter ? { filter: opts.filter } : {}),
+      ...(opts.sorts ? { sorts: opts.sorts } : {}),
       ...(cursor ? { start_cursor: cursor } : {}),
     });
     pages.push(...res.results.filter((p) => p.object === "page"));
-    cursor = res.has_more ? res.next_cursor : null;
+    cursor = res.has_more && opts.limit === undefined ? res.next_cursor : null;
   } while (cursor);
   return pages;
 }
@@ -79,9 +95,9 @@ async function queryAll(token: string, version: string, path: string): Promise<N
  * refuses the database (e.g. it gained a second data source), resolve the real
  * data source ID via the 2025-09-03 API and query that instead.
  */
-async function queryDatabase(token: string, databaseId: string): Promise<NotionPage[]> {
+async function queryDatabase(token: string, databaseId: string, opts: QueryOptions = {}): Promise<NotionPage[]> {
   try {
-    return await queryAll(token, LEGACY_VERSION, `/databases/${databaseId}/query`);
+    return await queryAll(token, LEGACY_VERSION, `/databases/${databaseId}/query`, opts);
   } catch (err) {
     if (!(err instanceof NotionError && err.status === 400)) throw err;
     const db = await notionRequest<{ data_sources?: { id: string }[] }>(
@@ -92,7 +108,7 @@ async function queryDatabase(token: string, databaseId: string): Promise<NotionP
     );
     const dataSourceId = db.data_sources?.[0]?.id;
     if (!dataSourceId) throw err;
-    return queryAll(token, DATA_SOURCE_VERSION, `/data_sources/${dataSourceId}/query`);
+    return queryAll(token, DATA_SOURCE_VERSION, `/data_sources/${dataSourceId}/query`, opts);
   }
 }
 
@@ -204,18 +220,72 @@ export function pageToTopic(page: NotionPage, subject: SubjectConfig, today: str
   );
 }
 
+export function pageToSession(page: NotionPage): TrainingSession {
+  const method = readSelect(page, TRENINKY_PROP.metoda);
+  const predmet = readSelect(page, TRENINKY_PROP.predmet);
+  const gap = prop(page, TRENINKY_PROP.posunulGap, "checkbox") as { checkbox: boolean } | undefined;
+  return {
+    id: page.id,
+    topicPageId: toPageId(readRichText(page, TRENINKY_PROP.temaPageId) ?? ""),
+    subject: SUBJECTS.find((s) => s.name === predmet)?.code ?? null,
+    topicTitle: readRichText(page, TRENINKY_PROP.tema) ?? "",
+    date: readDate(page, TRENINKY_PROP.datum),
+    method: isMethod(method) ? method : null,
+    score: readNumber(page, TRENINKY_PROP.skore),
+    advancedGap: gap?.checkbox ?? false,
+  };
+}
+
+const NEWEST_FIRST = [
+  { property: TRENINKY_PROP.datum, direction: "descending" },
+  { timestamp: "created_time", direction: "descending" },
+];
+
+/** How many recent Tréninky rows the topic list reads for the last-skóre chips (one request). */
+const RECENT_SESSIONS = 100;
+
+/** Last skóre per topic from the most recent Tréninky rows. A failure never blocks the topics. */
+export async function fetchTreninky(token: string, databaseId: string | null): Promise<TreninkyResponse> {
+  if (!databaseId) return { configured: false, last: {}, error: TRENINKY_MISSING };
+  try {
+    const pages = await queryDatabase(token, databaseId, { sorts: NEWEST_FIRST, limit: RECENT_SESSIONS });
+    const sessions = pages.filter((p) => !p.in_trash && !p.archived).map(pageToSession);
+    return { configured: true, last: lastSessionByTopic(sessions), error: null };
+  } catch (err) {
+    return { configured: true, last: {}, error: `Tréninky se nenačetly: ${err instanceof Error ? err.message : String(err)}` };
+  }
+}
+
+/** Historie: the newest sessions of one topic. */
+export async function fetchSessions(
+  token: string,
+  databaseId: string | null,
+  topicPageId: string,
+  limit = 10,
+): Promise<TrainingSession[]> {
+  if (!databaseId) throw new NotionError(TRENINKY_MISSING, 503);
+  const pages = await queryDatabase(token, databaseId, {
+    filter: { property: TRENINKY_PROP.temaPageId, rich_text: { equals: toPageId(topicPageId) } },
+    sorts: NEWEST_FIRST,
+    limit,
+  });
+  return pages.filter((p) => !p.in_trash && !p.archived).map(pageToSession);
+}
+
 export async function fetchAllTopics(
   token: string,
   timeZone = DEFAULT_TIME_ZONE,
   milnikyDatabaseId: string | null = MILNIKY.databaseId,
+  treninkyDatabaseId: string | null = TRENINKY.databaseId,
 ): Promise<TopicsResponse> {
   const today = todayIn(timeZone);
   const topics: Topic[] = [];
   const errors: SubjectError[] = [];
 
-  const [results, milniky] = await Promise.all([
+  const [results, milniky, treninky] = await Promise.all([
     Promise.allSettled(SUBJECTS.map((s) => queryDatabase(token, s.databaseId))),
     fetchMilniky(token, milnikyDatabaseId),
+    fetchTreninky(token, treninkyDatabaseId),
   ]);
   // Nothing loaded at all (offline, revoked token): one clear error instead of six.
   if (results.every((r) => r.status === "rejected")) throw (results[0] as PromiseRejectedResult).reason;
@@ -233,7 +303,7 @@ export async function fetchAllTopics(
     }
   });
 
-  return { today, timeZone, topics, errors, milniky };
+  return { today, timeZone, topics, errors, milniky, treninky };
 }
 
 const normalizeId = (id: string) => id.replace(/-/g, "").toLowerCase();
@@ -315,4 +385,74 @@ export async function undoTopic(
     properties: writePropsToNotion(previous),
   });
   return pageToTopic(updated, subject, today);
+}
+
+/**
+ * Log one retrieval session (Fáze 6): create a Tréninky row and, with Posunout
+ * gap on, advance Hotovo exactly like the Fáze 2 button (Poslední = session day).
+ * The row is created first; if the topic write then fails, the row is archived
+ * again, so a session is never logged as "Posunul gap" without the gap moving.
+ */
+export async function logSession(
+  token: string,
+  databaseId: string | null,
+  pageId: string,
+  body: unknown,
+  timeZone = DEFAULT_TIME_ZONE,
+): Promise<{
+  topic: Topic;
+  session: TrainingSession;
+  undo: { previous: Partial<TopicWriteProps>; written: Partial<TopicWriteProps>; sessionId: string };
+}> {
+  if (!databaseId) throw new NotionError(TRENINKY_MISSING, 503);
+  const today = todayIn(timeZone);
+  const parsed = parseSessionInput(body, today);
+  if (!parsed.ok) throw new NotionError(parsed.error, 400);
+  const input = parsed.input;
+
+  const { page, subject } = await readTopicPage(token, pageId);
+  const before = pageToTopic(page, subject, today);
+  const result = sessionPatch(before, input);
+  if (input.advanceGap && !result) throw new NotionError("Tohle téma už nejde posunout, vypni Posunout gap", 409);
+
+  const created = await notionRequest<NotionPage>(token, LEGACY_VERSION, "POST", "/pages", {
+    parent: { database_id: databaseId },
+    properties: buildSessionRow(before, input, result !== null),
+  });
+
+  let topic = before;
+  let previous: Partial<TopicWriteProps> = {};
+  let written: Partial<TopicWriteProps> = {};
+  if (result) {
+    try {
+      const updated = await notionRequest<NotionPage>(token, LEGACY_VERSION, "PATCH", `/pages/${pageId}`, {
+        properties: patchToProperties(result.patch),
+      });
+      topic = pageToTopic(updated, subject, today);
+      ({ previous, written } = buildUndoSnapshot(before, result.patch, "", 0));
+    } catch (err) {
+      await archivePage(token, created.id).catch(() => undefined);
+      throw err;
+    }
+  }
+  return { topic, session: pageToSession(created), undo: { previous, written, sessionId: created.id } };
+}
+
+async function archivePage(token: string, pageId: string): Promise<void> {
+  await notionRequest(token, LEGACY_VERSION, "PATCH", `/pages/${pageId}`, { archived: true });
+}
+
+/**
+ * Undo a logged session: archive its Tréninky row. Only a live row in the
+ * Tréninky DB that belongs to this topic can be archived.
+ */
+export async function undoSession(token: string, databaseId: string | null, sessionId: string, topicPageId: string): Promise<void> {
+  if (!databaseId) throw new NotionError(TRENINKY_MISSING, 503);
+  const page = await notionRequest<NotionPage>(token, LEGACY_VERSION, "GET", `/pages/${sessionId}`);
+  const inTreninky = page.parent?.database_id && normalizeId(page.parent.database_id) === normalizeId(databaseId);
+  if (!inTreninky || pageToSession(page).topicPageId !== toPageId(topicPageId)) {
+    throw new NotionError("Záznam nepatří k tomuto tématu v Trénincích", 404);
+  }
+  if (page.in_trash || page.archived) return;
+  await archivePage(token, sessionId);
 }

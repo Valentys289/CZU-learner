@@ -104,3 +104,27 @@ export const MILNIKY_PROP = {
   poradi: "Pořadí",
   linkPlan: "Link plán",
 } as const;
+
+/**
+ * Notion Tréninky DB (Fáze 6): one row per retrieval session (method + skóre).
+ * The only DB the app creates pages in. Queried by database block ID.
+ * In `npm run dev` / `electron:dev`, NOTION_TRENINKY_DB in .env.local overrides it.
+ */
+export const TRENINKY: { databaseId: string | null; collectionId: string | null } = {
+  databaseId: "d575b6af-a92f-4fd1-8d52-8eb5ae23ad34",
+  collectionId: "2f9f6e35-29f5-482d-8a3f-f0cdb3b983ee",
+};
+
+/** Property names on the Tréninky DB. */
+export const TRENINKY_PROP = {
+  nazev: "Název",
+  datum: "Datum",
+  metoda: "Metoda",
+  skore: "Skóre",
+  predmet: "Předmět",
+  tema: "Téma",
+  temaPageId: "Téma page ID",
+  posunulGap: "Posunul gap",
+  poznamka: "Poznámka",
+  zdroj: "Zdroj",
+} as const;
