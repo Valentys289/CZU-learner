@@ -468,6 +468,27 @@ button { font: inherit; color: inherit; }
 .history-date { color: var(--muted); min-width: 64px; }
 .history-gap { font-size: 0.78rem; color: var(--muted); }
 
+/* Fáze 7 A: Opakování vs Učím nové */
+.area-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 16px 0 4px;
+  font-size: 1.05rem;
+}
+.area-encoding { margin-top: 24px; padding-top: 4px; border-top: 1px solid var(--border); }
+.area-hint { margin: 0 0 8px; color: var(--muted); font-size: 0.82rem; }
+.chip-stav { background: transparent; color: var(--muted); box-shadow: inset 0 0 0 1px var(--border); }
+.link-button {
+  margin-top: 10px;
+  border: 0;
+  background: none;
+  padding: 4px 0;
+  color: var(--accent);
+  font-weight: 600;
+  cursor: pointer;
+}
+
 /* Fáze 7 E: preferred methods */
 .seg-other { color: var(--muted); }
 .sheet-tip { margin: 0; font-size: 0.85rem; color: var(--warn); font-weight: 600; }

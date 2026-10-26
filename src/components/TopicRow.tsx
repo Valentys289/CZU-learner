@@ -31,6 +31,7 @@ export function TopicRow({ topic, today, showBadge = true }: { topic: Topic; tod
             )}
             {!topic.termin && topic.deadline && <span>Deadline {formatDate(topic.deadline, today)}</span>}
             <span className="chip">{topic.hotovo ?? "Neučeno"}</span>
+            {topic.stav && <span className="chip chip-stav">{topic.stav}</span>}
             {last?.score != null && (
               <span
                 className={`chip chip-score chip-score-${last.score}`}
