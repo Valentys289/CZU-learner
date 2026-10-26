@@ -1,6 +1,6 @@
 # ČZU Study Dashboard (Fáze 5)
 
-A thin, mobile-first web app on top of Honza's Notion school hub (SČHOOL). Notion stays the source of truth: nothing is migrated. Fáze 1 was read-only; Fáze 2 adds two write buttons (**Hotovo**, **Naučeno dnes**) that update a topic's properties in Notion.
+A thin, mobile-first web app on top of a Notion school hub (SČHOOL). Notion stays the source of truth: nothing is migrated. Fáze 1 was read-only; Fáze 2 adds two write buttons (**Hotovo**, **Naučeno dnes**) that update a topic's properties in Notion.
 
 > **Fáze 2 writes to Notion.** Fáze 1 only needed the **Read content** capability. The buttons fail with "Integrace nemá oprávnění Update content" until you enable **Update content** on the connection (see [Enable writes](#enable-writes-fáze-2)).
 
@@ -16,7 +16,7 @@ Stack: Vite + React + TypeScript, Vitest. The Notion token is used only by a sma
 ### 1. Create a Notion integration
 
 1. Open <https://www.notion.so/profile/integrations> and click **New integration**.
-2. Workspace: Kohlís school space. Type: **Internal**. Name it e.g. `ČZU Dashboard`.
+2. Workspace: your school workspace. Type: **Internal**. Name it e.g. `ČZU Dashboard`.
 3. Capabilities: **Read content** and **Update content**. Leave **Insert content** off, the app never creates pages.
 4. Save and copy the **Internal Integration Secret** (`ntn_...`).
 
@@ -26,15 +26,13 @@ The integration only sees pages that are explicitly connected to it. Simplest: o
 
 If you prefer to share selectively, connect each of these (`•••` → Connections on the database or its parent page):
 
-| What | Database block ID |
-|------|-------------------|
-| Předměty | `820212ad-dbb3-4c70-b7ca-ff4a64a86025` |
-| M Témata (Matematika) | `58c6bc0a-a6e2-4463-9497-4b3ead3c62d5` |
-| CH Témata (Chemie) | `44ee8c0b-067b-4d55-8b2f-7513356bb245` |
-| ICT Témata (Informatika) | `6de1da79-7574-44a4-a7bc-3b7cb23c3715` |
-| TD Témata (Technická dokumentace) | `09d8e793-3e5a-4c86-9b98-bf1647a142ea` |
-| UE Témata (Udržitelná energetika) | `0281606c-8db6-4bde-b030-49e30a1c09db` |
-| AJ Témata (Angličtina) | `8c9258f5-e060-421c-9a89-84ae4d263c9b` |
+- Předměty
+- M Témata (Matematika)
+- CH Témata (Chemie)
+- ICT Témata (Informatika)
+- TD Témata (Technická dokumentace)
+- UE Témata (Udržitelná energetika)
+- AJ Témata (Angličtina)
 
 All IDs live in `src/notion/config.ts`.
 
@@ -208,7 +206,7 @@ Sections: **Blížící se** (soonest first), **Bez data**, **Minulé** (collaps
 ### Wiring the DB (DEKAN)
 
 1. Create the DB under SČHOOL with the properties above, share it with the **ČZU Study Dashboard** connection, seed the rows.
-2. Its database block ID is in `MILNIKY.databaseId` in `src/notion/config.ts` (`8407eccc-a370-4006-8b5b-28f4a3071029`, data source `ac4c269a-5454-4a2e-8b22-4c5ad2112339`).
+2. Its database block ID is in `MILNIKY.databaseId` in `src/notion/config.ts`.
 3. To point a dev build at another DB: `NOTION_MILNIKY_DB=<database block id>` in `.env.local` (works with `npm run dev` and `npm run electron:dev`).
 
 There is no hardcoded fallback. If the ID is missing the Timeline says "Chybí Milníky DB"; if the DB cannot be read (for example it is not shared with the connection) it shows the error. Either way no invented dates.
