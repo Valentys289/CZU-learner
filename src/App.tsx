@@ -283,7 +283,9 @@ export function App() {
                 <p>{state.data.errors.map((e) => `${e.subject}: ${e.message}`).join(" · ")}</p>
               </div>
             )}
-            {tab === "dnes" && <DnesTab topics={state.data.topics} today={state.data.today} />}
+            {tab === "dnes" && (
+              <DnesTab topics={state.data.topics} today={state.data.today} onOpenPredmety={() => setTab("predmety")} />
+            )}
             {tab === "predmety" && (
               <PredmetyTab topics={state.data.topics} today={state.data.today} errors={state.data.errors} />
             )}

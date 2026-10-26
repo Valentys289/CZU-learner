@@ -4,8 +4,8 @@ A thin, mobile-first web app on top of a Notion school hub (SČHOOL). Notion sta
 
 > **Fáze 2 writes to Notion.** Fáze 1 only needed the **Read content** capability. The buttons fail with "Integrace nemá oprávnění Update content" until you enable **Update content** on the connection (see [Enable writes](#enable-writes-fáze-2)).
 
-- **Dnes**: topics whose computed `Termín` is today or earlier. Overdue topics first (oldest first, red), then due today. Tap a row to open the topic in Notion.
-- **Předměty**: the 6 subjects with counts *Po termínu / Dnes / Neučeno*. Tap a card to see its due topics and the not-yet-learned topics sorted by `Deadline`.
+- **Dnes**: two areas. **Opakování**: topics whose computed `Termín` is today or earlier, overdue first (oldest first, red), then due today. **Učím nové**: not-yet-learned topics whose `Deadline` falls within 14 days or is already past (see [Encoding vs retrieval](#encoding-vs-retrieval)). Tap a row to open the topic in Notion.
+- **Předměty**: the 6 subjects with counts *Po termínu / Dnes / Učím nové*. Tap a card to see *Opakování (retrieval)*, *Učím nové (encoding)* sorted by `Deadline`, and the other learned topics.
 - **Naučeno dnes**: one-tap button for first learn (see [Fáze 2](#fáze-2-writes)).
 - **Hotovo / Trénink**: opens a small sheet to log a retrieval session (method + skóre 1 to 5) into the Notion **Tréninky** DB, and on a due topic also advance `Hotovo` (see [Tréninky: metody a skóre](#tréninky-metody-a-skóre)).
 - **Timeline**: tests, zápočty and deadlines from the Notion **Milníky** DB, with a thin progress bar (see [Timeline: Milníky z Notion](#timeline-milníky-z-notion)). Read-only.
@@ -173,6 +173,16 @@ After a successful **Hotovo** or **Naučeno dnes** a toast shows *Hotovo uložen
 - `POST /api/topics/{id}/undo` refuses (409) if the page changed in Notion since the write, so a change made elsewhere is never overwritten. If undo fails, the app shows the error and reloads from Notion.
 - Formula properties (`Termín`) are never written.
 - Fáze 6: after a logged session the toast offers the same Zpět; it also archives the Tréninky row the save created.
+
+## Encoding vs retrieval
+
+`src/lib/phase.ts` splits topics without any new Notion property:
+
+- **Encoding** (*Učím nové*): the true Neučeno queue: `Hotovo` Neučeno or empty and no `Naučeno` date, whatever `Stav` says. Action: **Naučeno dnes**.
+- **Retrieval** (*Opakování*): everything else (a `Naučeno` date or a Hotovo step). Due ones open the session sheet (**Hotovo**).
+- When `Stav` disagrees (e.g. Priming on a topic that already has a Hotovo step), the Hotovo queue wins.
+
+`Stav` options in the Témata DBs: Priming, Encoding, Retrieval, Stable. The app shows Stav as a chip on rows and never writes it from these lists. Dnes shows encoding topics only with a `Deadline` within `ENCODING_HORIZON_DAYS` (14) or already past; the rest stay on Předměty, linked from Dnes.
 
 ## Tréninky: metody a skóre
 
