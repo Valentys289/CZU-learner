@@ -39,26 +39,26 @@ export class NotionError extends Error {
   }
 }
 
-async function notionPost(token: string, version: string, path: string, body: unknown): Promise<QueryResponse> {
+async function notionRequest<T>(token: string, version: string, method: "GET" | "POST", path: string, body?: unknown): Promise<T> {
   const res = await fetch(`${NOTION_API}${path}`, {
-    method: "POST",
+    method,
     headers: {
       Authorization: `Bearer ${token}`,
       "Notion-Version": version,
-      "Content-Type": "application/json",
+      ...(body ? { "Content-Type": "application/json" } : {}),
     },
-    body: JSON.stringify(body),
+    body: body ? JSON.stringify(body) : undefined,
   });
   const json = (await res.json().catch(() => ({}))) as { message?: string; code?: string };
   if (!res.ok) throw new NotionError(json.message ?? `HTTP ${res.status}`, res.status, json.code);
-  return json as QueryResponse;
+  return json as T;
 }
 
 async function queryAll(token: string, version: string, path: string): Promise<NotionPage[]> {
   const pages: NotionPage[] = [];
   let cursor: string | null = null;
   do {
-    const res: QueryResponse = await notionPost(token, version, path, {
+    const res: QueryResponse = await notionRequest<QueryResponse>(token, version, "POST", path, {
       page_size: 100,
       ...(cursor ? { start_cursor: cursor } : {}),
     });
@@ -68,15 +68,26 @@ async function queryAll(token: string, version: string, path: string): Promise<N
   return pages;
 }
 
-/** Query a subject's Témata. Prefers the data source endpoint, falls back to legacy databases.query. */
+/**
+ * Query a subject's Témata by its database block ID. The internal collection IDs
+ * from Notion URLs are not valid API data source IDs (they 404). If the legacy
+ * endpoint refuses the database (e.g. it gained a second data source), resolve
+ * the real data source ID via the 2025-09-03 API and query that instead.
+ */
 async function querySubject(token: string, subject: SubjectConfig): Promise<NotionPage[]> {
   try {
-    return await queryAll(token, DATA_SOURCE_VERSION, `/data_sources/${subject.dataSourceId}/query`);
+    return await queryAll(token, LEGACY_VERSION, `/databases/${subject.databaseId}/query`);
   } catch (err) {
-    if (err instanceof NotionError && (err.status === 400 || err.status === 404)) {
-      return queryAll(token, LEGACY_VERSION, `/databases/${subject.databaseId}/query`);
-    }
-    throw err;
+    if (!(err instanceof NotionError && err.status === 400)) throw err;
+    const db = await notionRequest<{ data_sources?: { id: string }[] }>(
+      token,
+      DATA_SOURCE_VERSION,
+      "GET",
+      `/databases/${subject.databaseId}`,
+    );
+    const dataSourceId = db.data_sources?.[0]?.id;
+    if (!dataSourceId) throw err;
+    return queryAll(token, DATA_SOURCE_VERSION, `/data_sources/${dataSourceId}/query`);
   }
 }
 

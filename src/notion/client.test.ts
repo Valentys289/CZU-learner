@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
-import { pageToTopic } from "./client";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { fetchAllTopics, pageToTopic } from "./client";
 import { SUBJECTS } from "./config";
 
 const chemie = SUBJECTS.find((s) => s.code === "CH")!;
@@ -48,5 +48,57 @@ describe("pageToTopic", () => {
       "2026-10-26",
     );
     expect(t).toMatchObject({ title: "(bez názvu)", hotovo: null, termin: null, dueState: "none" });
+  });
+});
+
+describe("fetchAllTopics request routing", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  const empty = { object: "list", results: [], has_more: false, next_cursor: null };
+  const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status });
+
+  it("queries every subject by database block ID, never by collection ID", async () => {
+    const fetchMock = vi.fn(async (_url: string, _init?: RequestInit) => json({ ...empty, results: [page] }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const res = await fetchAllTopics("tok");
+    const urls = fetchMock.mock.calls.map(([url]) => url);
+
+    expect(res.errors).toEqual([]);
+    expect(res.topics).toHaveLength(SUBJECTS.length);
+    expect(urls).toEqual(SUBJECTS.map((s) => `https://api.notion.com/v1/databases/${s.databaseId}/query`));
+    for (const s of SUBJECTS) expect(urls.join()).not.toContain(s.collectionId);
+  });
+
+  it("resolves the real data source when the legacy endpoint refuses the database", async () => {
+    const fetchMock = vi.fn(async (url: string, _init?: RequestInit) => {
+      if (url.endsWith("/query") && url.includes("/databases/")) {
+        return json({ object: "error", status: 400, code: "validation_error", message: "multiple data sources" }, 400);
+      }
+      if (url.includes("/databases/")) return json({ object: "database", data_sources: [{ id: "ds-real" }] });
+      return json({ ...empty, results: [page] });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const res = await fetchAllTopics("tok");
+
+    expect(res.errors).toEqual([]);
+    expect(res.topics).toHaveLength(SUBJECTS.length);
+    expect(fetchMock).toHaveBeenCalledWith("https://api.notion.com/v1/data_sources/ds-real/query", expect.anything());
+  });
+
+  it("reports a 404 per subject without failing the others", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) =>
+        url.includes(SUBJECTS[0].databaseId)
+          ? json({ object: "error", status: 404, code: "object_not_found", message: "Could not find database" }, 404)
+          : json(empty),
+      ),
+    );
+
+    const res = await fetchAllTopics("tok");
+
+    expect(res.errors).toEqual([{ subject: SUBJECTS[0].code, message: "Could not find database" }]);
   });
 });

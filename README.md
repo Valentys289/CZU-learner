@@ -23,15 +23,15 @@ The integration only sees pages that are explicitly connected to it. Simplest: o
 
 If you prefer to share selectively, connect each of these (`•••` → Connections on the database or its parent page):
 
-| What | Data source (collection) ID |
-|------|-----------------------------|
-| Předměty | `d7dc58ab-50c1-41e5-b89c-56555930ba2f` |
-| M Témata (Matematika) | `9defdb0c-8fe4-49fe-bec2-bcced09a161d` |
-| CH Témata (Chemie) | `33a638c6-e8a3-47c8-a13e-cc645ecc96a7` |
-| ICT Témata (Informatika) | `b2a9d095-4b31-4a3d-9a21-90edc0a3060b` |
-| TD Témata (Technická dokumentace) | `1e4f5234-0705-4331-854c-f0b31d3a2ff1` |
-| UE Témata (Udržitelná energetika) | `7b732ab0-5554-41db-8356-4a5fc531e766` |
-| AJ Témata (Angličtina) | `7805fb3f-692d-467e-8f9d-891684e9f661` |
+| What | Database block ID |
+|------|-------------------|
+| Předměty | `820212ad-dbb3-4c70-b7ca-ff4a64a86025` |
+| M Témata (Matematika) | `58c6bc0a-a6e2-4463-9497-4b3ead3c62d5` |
+| CH Témata (Chemie) | `44ee8c0b-067b-4d55-8b2f-7513356bb245` |
+| ICT Témata (Informatika) | `6de1da79-7574-44a4-a7bc-3b7cb23c3715` |
+| TD Témata (Technická dokumentace) | `09d8e793-3e5a-4c86-9b98-bf1647a142ea` |
+| UE Témata (Udržitelná energetika) | `0281606c-8db6-4bde-b030-49e30a1c09db` |
+| AJ Témata (Angličtina) | `8c9258f5-e060-421c-9a89-84ae4d263c9b` |
 
 All IDs live in `src/notion/config.ts`.
 
@@ -82,7 +82,9 @@ If `Hotovo` is past `Neučeno` but `Poslední opakování` is empty, `Naučeno` 
 
 ## Notion API
 
-`src/notion/client.ts` calls `POST /v1/data_sources/{id}/query` (Notion-Version `2025-09-03`) with pagination. If that endpoint rejects the request (400/404), it falls back to the legacy `POST /v1/databases/{database_block_id}/query` (`2022-06-28`). Trashed/archived pages are skipped.
+`src/notion/client.ts` queries each subject with `POST /v1/databases/{database_block_id}/query` (Notion-Version `2022-06-28`), with pagination. Trashed/archived pages are skipped.
+
+The `collection://` IDs Notion shows internally are **not** API data source IDs: `POST /v1/data_sources/{collection_id}/query` returns 404. They are kept in `config.ts` as `collectionId` for reference only. If the legacy endpoint ever rejects a database (400, e.g. after a second data source is added to it), the client looks up the real data source ID with `GET /v1/databases/{id}` (`2025-09-03`) and queries that.
 
 ## Fáze 2 (not implemented, writes)
 
