@@ -38,7 +38,8 @@ All IDs live in `src/notion/config.ts`.
 ### 3. Configure and run
 
 ```bash
-cd czu-study-dashboard
+git clone https://github.com/Valentys289/CZU-learner.git
+cd CZU-learner
 cp .env.example .env      # then paste the secret into NOTION_TOKEN
 npm install
 npm run dev               # http://localhost:5173 (also on your LAN IP, for the phone)
