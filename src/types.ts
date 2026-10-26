@@ -26,6 +26,8 @@ export type Topic = {
   dueState: DueState;
 };
 
+import type { MilnikyResponse } from "./timeline/types";
+
 export type SubjectError = { subject: SubjectCode; message: string };
 
 export type TopicsResponse = {
@@ -33,4 +35,6 @@ export type TopicsResponse = {
   timeZone: string;
   topics: Topic[];
   errors: SubjectError[];
+  /** Timeline milestones (Notion Milníky DB). */
+  milniky: MilnikyResponse;
 };

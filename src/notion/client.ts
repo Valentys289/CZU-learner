@@ -1,5 +1,6 @@
 // Server-side only: runs inside the Vite dev/preview server, never in the browser.
-import { DEFAULT_TIME_ZONE, PROP, SUBJECTS, type SubjectConfig } from "./config";
+import { DEFAULT_TIME_ZONE, MILNIKY, MILNIKY_PROP, PROP, SUBJECTS, type SubjectConfig } from "./config";
+import type { MilnikyResponse, MilnikyRow } from "../timeline/types";
 import { toDateOnly, todayIn, withTermin } from "../lib/termin";
 import { applyAction, buildUndoSnapshot, type TopicAction, type TopicPatch, type TopicWriteProps } from "../lib/hotovo";
 import type { Hotovo, SubjectError, Topic, TopicsResponse } from "../types";
@@ -17,6 +18,8 @@ type NotionProperty =
   | { type: "date"; date: { start: string } | null }
   | { type: "number"; number: number | null }
   | { type: "url"; url: string | null }
+  | { type: "rich_text"; rich_text: { plain_text: string }[] }
+  | { type: "checkbox"; checkbox: boolean }
   | { type: string; [key: string]: unknown };
 
 type NotionPage = {
@@ -71,21 +74,21 @@ async function queryAll(token: string, version: string, path: string): Promise<N
 }
 
 /**
- * Query a subject's Témata by its database block ID. The internal collection IDs
- * from Notion URLs are not valid API data source IDs (they 404). If the legacy
- * endpoint refuses the database (e.g. it gained a second data source), resolve
- * the real data source ID via the 2025-09-03 API and query that instead.
+ * Query a database by its block ID. The internal collection IDs from Notion
+ * URLs are not valid API data source IDs (they 404). If the legacy endpoint
+ * refuses the database (e.g. it gained a second data source), resolve the real
+ * data source ID via the 2025-09-03 API and query that instead.
  */
-async function querySubject(token: string, subject: SubjectConfig): Promise<NotionPage[]> {
+async function queryDatabase(token: string, databaseId: string): Promise<NotionPage[]> {
   try {
-    return await queryAll(token, LEGACY_VERSION, `/databases/${subject.databaseId}/query`);
+    return await queryAll(token, LEGACY_VERSION, `/databases/${databaseId}/query`);
   } catch (err) {
     if (!(err instanceof NotionError && err.status === 400)) throw err;
     const db = await notionRequest<{ data_sources?: { id: string }[] }>(
       token,
       DATA_SOURCE_VERSION,
       "GET",
-      `/databases/${subject.databaseId}`,
+      `/databases/${databaseId}`,
     );
     const dataSourceId = db.data_sources?.[0]?.id;
     if (!dataSourceId) throw err;
@@ -123,6 +126,63 @@ function readUrl(page: NotionPage, name: string): string | null {
   return p?.url ?? null;
 }
 
+function readRichText(page: NotionPage, name: string): string | null {
+  const p = prop(page, name, "rich_text") as { rich_text: { plain_text: string }[] } | undefined;
+  const text = p?.rich_text.map((t) => t.plain_text).join("").trim();
+  return text || null;
+}
+
+function readTitleProp(page: NotionPage, name: string): string {
+  const p = prop(page, name, "title") as { title: { plain_text: string }[] } | undefined;
+  return p?.title.map((t) => t.plain_text).join("").trim() ?? "";
+}
+
+/** Raw Notion date start (keeps a time when the date has one). */
+function readDateStart(page: NotionPage, name: string): string | null {
+  const p = prop(page, name, "date") as { date: { start: string } | null } | undefined;
+  return p?.date?.start ?? null;
+}
+
+export function pageToMilnikyRow(page: NotionPage): MilnikyRow {
+  const aktivni = prop(page, MILNIKY_PROP.aktivni, "checkbox") as { checkbox: boolean } | undefined;
+  return {
+    id: page.id,
+    url: page.url,
+    nazev: readTitleProp(page, MILNIKY_PROP.nazev),
+    predmet: readSelect(page, MILNIKY_PROP.predmet),
+    typ: readSelect(page, MILNIKY_PROP.typ),
+    datum: readDateStart(page, MILNIKY_PROP.datum),
+    cas: readRichText(page, MILNIKY_PROP.cas),
+    misto: readRichText(page, MILNIKY_PROP.misto),
+    softText: readRichText(page, MILNIKY_PROP.softText),
+    konfliktData: readRichText(page, MILNIKY_PROP.konfliktData),
+    // A missing Aktivní property counts as active.
+    aktivni: aktivni ? aktivni.checkbox : true,
+    poznamka: readRichText(page, MILNIKY_PROP.poznamka),
+    progressTemata: readRichText(page, MILNIKY_PROP.progressTemata),
+    poradi: readNumber(page, MILNIKY_PROP.poradi),
+    linkPlan: readUrl(page, MILNIKY_PROP.linkPlan),
+  };
+}
+
+/** Read the Milníky DB. Without a configured ID, says so (the UI then shows the temporary baseline). */
+export async function fetchMilniky(token: string, databaseId: string | null): Promise<MilnikyResponse> {
+  if (!databaseId) {
+    return { source: "baseline", rows: [], error: "Chybí Milníky DB v config, DEKAN doplní ID" };
+  }
+  try {
+    const pages = await queryDatabase(token, databaseId);
+    return {
+      source: "notion",
+      rows: pages.filter((p) => !p.in_trash && !p.archived).map(pageToMilnikyRow),
+      error: null,
+    };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return { source: "notion", rows: [], error: `Milníky se nenačetly: ${message}` };
+  }
+}
+
 export function pageToTopic(page: NotionPage, subject: SubjectConfig, today: string): Topic {
   const hotovoRaw = readSelect(page, PROP.hotovo);
   const hotovo = HOTOVO_VALUES.includes(hotovoRaw as Hotovo) ? (hotovoRaw as Hotovo) : null;
@@ -144,12 +204,19 @@ export function pageToTopic(page: NotionPage, subject: SubjectConfig, today: str
   );
 }
 
-export async function fetchAllTopics(token: string, timeZone = DEFAULT_TIME_ZONE): Promise<TopicsResponse> {
+export async function fetchAllTopics(
+  token: string,
+  timeZone = DEFAULT_TIME_ZONE,
+  milnikyDatabaseId: string | null = MILNIKY.databaseId,
+): Promise<TopicsResponse> {
   const today = todayIn(timeZone);
   const topics: Topic[] = [];
   const errors: SubjectError[] = [];
 
-  const results = await Promise.allSettled(SUBJECTS.map((s) => querySubject(token, s)));
+  const [results, milniky] = await Promise.all([
+    Promise.allSettled(SUBJECTS.map((s) => queryDatabase(token, s.databaseId))),
+    fetchMilniky(token, milnikyDatabaseId),
+  ]);
   // Nothing loaded at all (offline, revoked token): one clear error instead of six.
   if (results.every((r) => r.status === "rejected")) throw (results[0] as PromiseRejectedResult).reason;
   results.forEach((result, i) => {
@@ -166,7 +233,7 @@ export async function fetchAllTopics(token: string, timeZone = DEFAULT_TIME_ZONE
     }
   });
 
-  return { today, timeZone, topics, errors };
+  return { today, timeZone, topics, errors, milniky };
 }
 
 const normalizeId = (id: string) => id.replace(/-/g, "").toLowerCase();

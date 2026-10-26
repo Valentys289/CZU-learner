@@ -2,7 +2,7 @@ import type { Plugin } from "vite";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { fetchAllTopics, NotionError, undoTopic, updateTopic } from "../notion/client";
 import { parseWriteProps, type TopicAction } from "../lib/hotovo";
-import { DEFAULT_TIME_ZONE } from "../notion/config";
+import { DEFAULT_TIME_ZONE, MILNIKY } from "../notion/config";
 
 export const API_PREFIX = "/api/topics";
 const MAX_BODY = 16 * 1024;
@@ -42,7 +42,11 @@ function readJson(req: IncomingMessage): Promise<unknown> {
  *
  * `subpath` is the part after /api/topics.
  */
-export function createApiHandler(getToken: () => string | undefined, timeZone = DEFAULT_TIME_ZONE) {
+export function createApiHandler(
+  getToken: () => string | undefined,
+  timeZone = DEFAULT_TIME_ZONE,
+  milnikyDatabaseId: string | null = MILNIKY.databaseId,
+) {
   function send(res: ServerResponse, status: number, body: unknown) {
     res.statusCode = status;
     res.end(JSON.stringify(body));
@@ -73,7 +77,7 @@ export function createApiHandler(getToken: () => string | undefined, timeZone = 
         const { topic, previous, written } = await updateTopic(token, write[1], write[2] as TopicAction, timeZone);
         return send(res, 200, { topic, undo: { previous, written } });
       }
-      send(res, 200, await fetchAllTopics(token, timeZone));
+      send(res, 200, await fetchAllTopics(token, timeZone, milnikyDatabaseId));
     } catch (err) {
       send(res, err instanceof NotionError && err.status < 500 ? err.status : 502, {
         error: errorMessage(err, Boolean(write)),
@@ -85,7 +89,11 @@ export function createApiHandler(getToken: () => string | undefined, timeZone = 
 
 /** Vite plugin: serves the API from `npm run dev` / `npm run preview` with the token from .env(.local). */
 export function notionApi(env: Record<string, string>): Plugin {
-  const handle = createApiHandler(() => env.NOTION_TOKEN, env.TZ || DEFAULT_TIME_ZONE);
+  const handle = createApiHandler(
+    () => env.NOTION_TOKEN,
+    env.TZ || DEFAULT_TIME_ZONE,
+    env.NOTION_MILNIKY_DB || MILNIKY.databaseId,
+  );
   const mount = (server: { middlewares: { use: (path: string, fn: (req: IncomingMessage, res: ServerResponse) => void) => void } }) =>
   {
     // Block body on purpose: a function returned from configureServer would be run as a post hook.

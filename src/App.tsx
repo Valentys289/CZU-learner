@@ -200,7 +200,9 @@ export function App() {
             {tab === "predmety" && (
               <PredmetyTab topics={state.data.topics} today={state.data.today} errors={state.data.errors} />
             )}
-            {tab === "timeline" && <TimelineTab topics={state.data.topics} today={state.data.today} />}
+            {tab === "timeline" && (
+              <TimelineTab topics={state.data.topics} milniky={state.data.milniky} today={state.data.today} />
+            )}
           </TopicActionsContext.Provider>
         )}
       </main>
