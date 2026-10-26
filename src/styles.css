@@ -497,6 +497,11 @@ button { font: inherit; color: inherit; }
   cursor: pointer;
 }
 
+/* Fáze 7 E: preferred methods */
+.seg-other { color: var(--muted); }
+.sheet-tip { margin: 0; font-size: 0.85rem; color: var(--warn); font-weight: 600; }
+.card-methods { margin: 10px 0 0; font-size: 0.85rem; color: var(--muted); }
+
 /* Fáze 7 B: checklist from the topic page body */
 .checklist-section .sub-title { margin: 4px 0 6px; text-transform: none; letter-spacing: 0; }
 .checklist { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }

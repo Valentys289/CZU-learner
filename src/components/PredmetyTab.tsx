@@ -4,6 +4,7 @@ import { SUBJECTS } from "../notion/config";
 import { dnesList } from "../lib/termin";
 import { pluralTemat } from "../lib/format";
 import { isEncodingTopic } from "../lib/phase";
+import { METHOD_LABEL, preferredMethodsFor } from "../lib/sessions";
 import { SubjectBadge } from "./SubjectBadge";
 import { TopicRow } from "./TopicRow";
 
@@ -55,6 +56,7 @@ export function PredmetyTab({ topics, today, errors }: { topics: Topic[]; today:
             )}
             {isOpen && !error && (
               <div className="card-body">
+                <p className="card-methods">Metody: {preferredMethodsFor(s.code).map((m) => METHOD_LABEL[m]).join(", ")}</p>
                 {due.length > 0 && (
                   <>
                     <h3 className="sub-title">Opakování (retrieval)</h3>
