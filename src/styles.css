@@ -488,3 +488,8 @@ button { font: inherit; color: inherit; }
   font-weight: 600;
   cursor: pointer;
 }
+
+/* Fáze 7 E: preferred methods */
+.seg-other { color: var(--muted); }
+.sheet-tip { margin: 0; font-size: 0.85rem; color: var(--warn); font-weight: 600; }
+.card-methods { margin: 10px 0 0; font-size: 0.85rem; color: var(--muted); }

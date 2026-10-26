@@ -16,6 +16,36 @@ export const METHOD_LABEL: Record<RetrievalMethod, string> = {
 
 export const SCORES = [1, 2, 3, 4, 5] as const;
 
+/**
+ * Preferred retrieval methods per subject (app config, no Notion property).
+ * The session sheet lists these first and preselects the first one. Every key
+ * must be one of METHODS; the rest of METHODS stay available after them.
+ */
+export const PREFERRED_METHODS: Record<SubjectCode, RetrievalMethod[]> = {
+  M: ["generatedQs", "brainDump", "flashcards"],
+  CH: ["flashcards", "quizlet", "generatedQs"],
+  ICT: ["flashcards", "generatedQs", "other"],
+  TD: ["brainDump", "other", "flashcards"],
+  UE: ["flashcards", "other"],
+  AJ: ["quizlet", "flashcards", "generatedQs"],
+};
+
+/** The subject's preferred methods (valid keys only, no duplicates); all METHODS for an unknown subject. */
+export function preferredMethodsFor(subject: string): RetrievalMethod[] {
+  const list = PREFERRED_METHODS[subject as SubjectCode];
+  if (!list) return [...METHODS];
+  return [...new Set(list.filter(isMethod))];
+}
+
+/** Sheet order: preferred first, then every other method once. */
+export function orderedMethods(subject: string): RetrievalMethod[] {
+  const preferred = preferredMethodsFor(subject);
+  return [...preferred, ...METHODS.filter((m) => !preferred.includes(m))];
+}
+
+/** Skóre at or below this shows a short tip to try another method next time (no effect on gaps). */
+export const LOW_SCORE = 2;
+
 /** One Tréninky row as the app reads it. */
 export type TrainingSession = {
   id: string;
