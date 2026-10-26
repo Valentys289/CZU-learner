@@ -1,6 +1,7 @@
 // Server-side only: runs inside the Vite dev/preview server, never in the browser.
 import { DEFAULT_TIME_ZONE, PROP, SUBJECTS, type SubjectConfig } from "./config";
 import { toDateOnly, todayIn, withTermin } from "../lib/termin";
+import { applyAction, type TopicAction, type TopicPatch } from "../lib/hotovo";
 import type { Hotovo, SubjectError, Topic, TopicsResponse } from "../types";
 
 const NOTION_API = "https://api.notion.com/v1";
@@ -24,6 +25,7 @@ type NotionPage = {
   url: string;
   in_trash?: boolean;
   archived?: boolean;
+  parent?: { type: string; database_id?: string };
   properties: Record<string, NotionProperty>;
 };
 
@@ -39,7 +41,7 @@ export class NotionError extends Error {
   }
 }
 
-async function notionRequest<T>(token: string, version: string, method: "GET" | "POST", path: string, body?: unknown): Promise<T> {
+async function notionRequest<T>(token: string, version: string, method: "GET" | "POST" | "PATCH", path: string, body?: unknown): Promise<T> {
   const res = await fetch(`${NOTION_API}${path}`, {
     method,
     headers: {
@@ -163,4 +165,47 @@ export async function fetchAllTopics(token: string, timeZone = DEFAULT_TIME_ZONE
   });
 
   return { today, timeZone, topics, errors };
+}
+
+const normalizeId = (id: string) => id.replace(/-/g, "").toLowerCase();
+
+function subjectOf(page: NotionPage): SubjectConfig | undefined {
+  const dbId = page.parent?.database_id;
+  return dbId ? SUBJECTS.find((s) => normalizeId(s.databaseId) === normalizeId(dbId)) : undefined;
+}
+
+/** Notion property values for a patch. Formulas (Termín) are never written. */
+export function patchToProperties(patch: TopicPatch): Record<string, unknown> {
+  const date = (start: string) => ({ date: { start } });
+  return {
+    [PROP.hotovo]: { select: { name: patch.hotovo } },
+    [PROP.posledni]: date(patch.posledni),
+    ...(patch.nauceno ? { [PROP.nauceno]: date(patch.nauceno) } : {}),
+    ...(patch.stav ? { [PROP.stav]: { select: { name: patch.stav } } } : {}),
+  };
+}
+
+/**
+ * Apply a Hotovo / Naučeno dnes action to one topic page. Reads the page first so
+ * the step is computed from Notion's current values, not from a stale browser copy,
+ * and only pages in the 6 Témata databases can be written.
+ */
+export async function updateTopic(
+  token: string,
+  pageId: string,
+  action: TopicAction,
+  timeZone = DEFAULT_TIME_ZONE,
+): Promise<Topic> {
+  const today = todayIn(timeZone);
+  const page = await notionRequest<NotionPage>(token, LEGACY_VERSION, "GET", `/pages/${pageId}`);
+  const subject = subjectOf(page);
+  if (!subject || page.in_trash || page.archived) throw new NotionError("Stránka nepatří do žádné databáze Témata", 404);
+
+  const result = applyAction(action, pageToTopic(page, subject, today), today);
+  if (!result) throw new NotionError("Tohle téma už nejde posunout, obnov seznam", 409);
+
+  const updated = await notionRequest<NotionPage>(token, LEGACY_VERSION, "PATCH", `/pages/${pageId}`, {
+    properties: patchToProperties(result.patch),
+  });
+  return pageToTopic(updated, subject, today);
 }
