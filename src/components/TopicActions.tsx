@@ -7,6 +7,8 @@ export type TopicActions = {
   run: (topic: Topic, action: TopicAction) => void;
   /** Fáze 6: open the session sheet (method + skóre), optionally with a method picked. */
   openSession: (topic: Topic, method?: RetrievalMethod) => void;
+  /** Fáze 7 B: open the Fáze checklist from the topic's page body. */
+  openChecklist: (topic: Topic) => void;
   pending: ReadonlySet<string>;
   /** Last Tréninky session per topic page ID, for the skóre chip. */
   lastSession: (topicId: string) => LastSession | undefined;

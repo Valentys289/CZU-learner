@@ -1,6 +1,16 @@
 import type { Plugin } from "vite";
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { fetchAllTopics, fetchSessions, logSession, NotionError, undoSession, undoTopic, updateTopic } from "../notion/client";
+import {
+  fetchAllTopics,
+  fetchChecklist,
+  fetchSessions,
+  logSession,
+  NotionError,
+  setChecklistItem,
+  undoSession,
+  undoTopic,
+  updateTopic,
+} from "../notion/client";
 import { parseWriteProps, type TopicAction } from "../lib/hotovo";
 import { DEFAULT_TIME_ZONE, MILNIKY, TRENINKY } from "../notion/config";
 
@@ -41,6 +51,8 @@ function readJson(req: IncomingMessage): Promise<unknown> {
  *   POST /api/topics/{pageId}/session     Fáze 6: { method, score, date?, advanceGap } → Tréninky row (+ Hotovo)
  *   GET  /api/topics/{pageId}/sessions    Fáze 6: last 10 Tréninky rows of the topic
  *   POST /api/topics/{pageId}/undo        { previous?, written?, sessionId? }: revert the last write
+ *   GET  /api/topics/{pageId}/checklist   Fáze 7 B: to_do items under the Fáze sections of the page body
+ *   POST /api/topics/{pageId}/checklist/{blockId}  { checked }: tick / untick one of them
  *
  * `subpath` is the part after /api/topics.
  */
@@ -61,15 +73,19 @@ export function createApiHandler(
     const path = subpath.split("?")[0];
     const write = /^\/([0-9a-fA-F-]{32,36})\/(hotovo|nauceno|undo|session)$/.exec(path);
     const history = /^\/([0-9a-fA-F-]{32,36})\/sessions$/.exec(path);
+    const checklist = /^\/([0-9a-fA-F-]{32,36})\/checklist$/.exec(path);
+    const tick = /^\/([0-9a-fA-F-]{32,36})\/checklist\/([0-9a-fA-F-]{32,36})$/.exec(path);
     const isRead = path === "/" || path === "";
 
-    if (!((isRead || history) && req.method === "GET") && !(write && req.method === "POST")) {
-      return send(res, isRead || write || history ? 405 : 404, { error: "Neplatný požadavek" });
+    if (!((isRead || history || checklist) && req.method === "GET") && !((write || tick) && req.method === "POST")) {
+      return send(res, isRead || write || history || checklist || tick ? 405 : 404, { error: "Neplatný požadavek" });
     }
     const token = getToken();
     if (!token) return send(res, 500, { error: "Chybí NOTION_TOKEN", code: NO_TOKEN });
 
     try {
+      if (checklist) return send(res, 200, await fetchChecklist(token, checklist[1]));
+      if (tick) return send(res, 200, await setChecklistItem(token, tick[1], tick[2], await readJson(req)));
       if (history) {
         return send(res, 200, { sessions: await fetchSessions(token, treninkyDatabaseId, history[1]) });
       }
@@ -97,7 +113,7 @@ export function createApiHandler(
       send(res, 200, await fetchAllTopics(token, timeZone, milnikyDatabaseId, treninkyDatabaseId));
     } catch (err) {
       send(res, err instanceof NotionError && err.status < 500 ? err.status : 502, {
-        error: errorMessage(err, Boolean(write), write?.[2] === "session"),
+        error: errorMessage(err, Boolean(write || tick), write?.[2] === "session"),
         ...(err instanceof NotionError && err.status === 401 ? { code: BAD_TOKEN } : {}),
       });
     }

@@ -6,7 +6,7 @@ import { SubjectBadge } from "./SubjectBadge";
 import { useTopicActions } from "./TopicActions";
 
 /**
- * Row buttons: Naučeno dnes (one tap, first learn), Hotovo on a due topic (opens
+ * Row buttons: Fáze (checklist from the page body), Naučeno dnes (one tap, first learn), Hotovo on a due topic (opens
  * the session sheet), Trénink on any other learned topic (extra practice, log only by default).
  */
 export function TopicRow({ topic, today, showBadge = true }: { topic: Topic; today: string; showBadge?: boolean }) {
@@ -44,6 +44,16 @@ export function TopicRow({ topic, today, showBadge = true }: { topic: Topic; tod
         </span>
         {overdue && !actions && <span className="flag">Po termínu</span>}
       </a>
+      {actions && (
+        <button
+          type="button"
+          className="topic-action topic-action-secondary topic-checklist"
+          title="Checklist Fáze z tématu v Notionu"
+          onClick={() => actions.openChecklist(topic)}
+        >
+          Fáze
+        </button>
+      )}
       {actions && (
         <button
           type="button"
