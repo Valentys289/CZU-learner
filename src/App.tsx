@@ -1,9 +1,11 @@
-import { useCallback, useEffect, useState } from "react";
-import type { TopicsResponse } from "./types";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { Topic, TopicsResponse } from "./types";
 import { DnesTab } from "./components/DnesTab";
 import { PredmetyTab } from "./components/PredmetyTab";
 import { formatToday } from "./lib/format";
-import { dnesList } from "./lib/termin";
+import { dnesList, withTermin } from "./lib/termin";
+import { applyAction, type TopicAction } from "./lib/hotovo";
+import { TopicActionsContext, type TopicActions } from "./components/TopicActions";
 
 type Tab = "dnes" | "predmety" | "timeline";
 
@@ -16,6 +18,51 @@ export function App() {
   const [tab, setTab] = useState<Tab>("dnes");
   const [state, setState] = useState<State>({ status: "loading" });
   const [refreshing, setRefreshing] = useState(false);
+  const [pending, setPending] = useState<ReadonlySet<string>>(new Set());
+  const [toast, setToast] = useState<string | null>(null);
+  const stateRef = useRef(state);
+  stateRef.current = state;
+
+  const replaceTopic = useCallback((topic: Topic) => {
+    setState((s) =>
+      s.status === "ready"
+        ? { ...s, data: { ...s.data, topics: s.data.topics.map((t) => (t.id === topic.id ? topic : t)) } }
+        : s,
+    );
+  }, []);
+
+  /** Optimistic write: show the new step at once, then keep Notion's answer or revert. */
+  const run = useCallback(
+    async (topic: Topic, action: TopicAction) => {
+      const current = stateRef.current;
+      if (current.status !== "ready") return;
+      const today = current.data.today;
+      const result = applyAction(action, topic, today);
+      if (!result) return;
+
+      setToast(null);
+      setPending((p) => new Set(p).add(topic.id));
+      replaceTopic(withTermin({ ...topic, ...result.patch }, today));
+      try {
+        const res = await fetch(`/api/topics/${topic.id}/${action}`, { method: "POST" });
+        const json = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(json.error ?? `HTTP ${res.status}`);
+        replaceTopic(json.topic as Topic);
+      } catch (err) {
+        replaceTopic(topic);
+        setToast(`Nepodařilo se uložit „${topic.title}“. ${err instanceof Error ? err.message : String(err)}`);
+      } finally {
+        setPending((p) => {
+          const next = new Set(p);
+          next.delete(topic.id);
+          return next;
+        });
+      }
+    },
+    [replaceTopic],
+  );
+
+  const actions = useMemo<TopicActions>(() => ({ run: (t, a) => void run(t, a), pending }), [run, pending]);
 
   const load = useCallback(async () => {
     setRefreshing(true);
@@ -58,7 +105,7 @@ export function App() {
           </div>
         )}
         {state.status === "ready" && (
-          <>
+          <TopicActionsContext.Provider value={actions}>
             {state.data.errors.length > 0 && tab === "dnes" && (
               <div className="error">
                 <strong>Některé předměty se nenačetly</strong>
@@ -70,9 +117,18 @@ export function App() {
               <PredmetyTab topics={state.data.topics} today={state.data.today} errors={state.data.errors} />
             )}
             {tab === "timeline" && <p className="empty">Timeline přijde ve Fázi 3</p>}
-          </>
+          </TopicActionsContext.Provider>
         )}
       </main>
+
+      {toast && (
+        <div className="toast" role="alert">
+          <p>{toast}</p>
+          <button type="button" onClick={() => setToast(null)} aria-label="Zavřít">
+            Zavřít
+          </button>
+        </div>
+      )}
 
       <nav className="tabs" aria-label="Sekce">
         <TabButton active={tab === "dnes"} onClick={() => setTab("dnes")}>

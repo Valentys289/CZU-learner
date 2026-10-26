@@ -261,3 +261,48 @@ button { font: inherit; color: inherit; }
   padding: 0 7px;
   font-weight: 700;
 }
+
+.topic { display: flex; align-items: center; }
+.topic-link { flex: 1; min-width: 0; }
+.topic-action {
+  flex-shrink: 0;
+  margin-right: 12px;
+  min-height: 40px;
+  padding: 8px 14px;
+  border: 0;
+  border-radius: 10px;
+  background: var(--accent);
+  color: #fff;
+  font-weight: 700;
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+.topic-action-secondary {
+  background: var(--surface);
+  color: var(--accent);
+  box-shadow: inset 0 0 0 1.5px var(--accent);
+}
+.topic-action:disabled { opacity: 0.6; cursor: default; }
+@media (prefers-color-scheme: dark) {
+  .topic-action:not(.topic-action-secondary) { color: #10291c; }
+}
+
+.toast {
+  position: fixed;
+  left: 16px;
+  right: 16px;
+  bottom: calc(64px + env(safe-area-inset-bottom));
+  max-width: 608px;
+  margin: 0 auto;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  background: var(--bad-bg);
+  border: 1px solid var(--bad);
+  border-radius: 12px;
+  padding: 10px 12px;
+  font-size: 0.9rem;
+  z-index: 2;
+}
+.toast p { flex: 1; margin: 0; overflow-wrap: anywhere; }
+.toast button { border: 0; background: none; color: var(--bad); font-weight: 700; cursor: pointer; padding: 0; }
