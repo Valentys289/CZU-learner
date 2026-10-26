@@ -1,7 +1,7 @@
 // Server-side only: runs inside the Vite dev/preview server, never in the browser.
 import { DEFAULT_TIME_ZONE, PROP, SUBJECTS, type SubjectConfig } from "./config";
 import { toDateOnly, todayIn, withTermin } from "../lib/termin";
-import { applyAction, type TopicAction, type TopicPatch } from "../lib/hotovo";
+import { applyAction, buildUndoSnapshot, type TopicAction, type TopicPatch, type TopicWriteProps } from "../lib/hotovo";
 import type { Hotovo, SubjectError, Topic, TopicsResponse } from "../types";
 
 const NOTION_API = "https://api.notion.com/v1";
@@ -150,6 +150,8 @@ export async function fetchAllTopics(token: string, timeZone = DEFAULT_TIME_ZONE
   const errors: SubjectError[] = [];
 
   const results = await Promise.allSettled(SUBJECTS.map((s) => querySubject(token, s)));
+  // Nothing loaded at all (offline, revoked token): one clear error instead of six.
+  if (results.every((r) => r.status === "rejected")) throw (results[0] as PromiseRejectedResult).reason;
   results.forEach((result, i) => {
     const subject = SUBJECTS[i];
     if (result.status === "fulfilled") {
@@ -174,15 +176,29 @@ function subjectOf(page: NotionPage): SubjectConfig | undefined {
   return dbId ? SUBJECTS.find((s) => normalizeId(s.databaseId) === normalizeId(dbId)) : undefined;
 }
 
+/** Notion property values for the write fields; null clears a field. Formulas (Termín) are never written. */
+export function writePropsToNotion(props: Partial<TopicWriteProps>): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  const date = (v: string | null) => ({ date: v ? { start: v } : null });
+  const select = (v: string | null) => ({ select: v ? { name: v } : null });
+  if (props.hotovo !== undefined) out[PROP.hotovo] = select(props.hotovo);
+  if (props.posledni !== undefined) out[PROP.posledni] = date(props.posledni);
+  if (props.nauceno !== undefined) out[PROP.nauceno] = date(props.nauceno);
+  if (props.stav !== undefined) out[PROP.stav] = select(props.stav);
+  return out;
+}
+
 /** Notion property values for a patch. Formulas (Termín) are never written. */
 export function patchToProperties(patch: TopicPatch): Record<string, unknown> {
-  const date = (start: string) => ({ date: { start } });
-  return {
-    [PROP.hotovo]: { select: { name: patch.hotovo } },
-    [PROP.posledni]: date(patch.posledni),
-    ...(patch.nauceno ? { [PROP.nauceno]: date(patch.nauceno) } : {}),
-    ...(patch.stav ? { [PROP.stav]: { select: { name: patch.stav } } } : {}),
-  };
+  return writePropsToNotion(patch);
+}
+
+/** Read a page and make sure it is a live topic in one of the 6 Témata databases. */
+async function readTopicPage(token: string, pageId: string): Promise<{ page: NotionPage; subject: SubjectConfig }> {
+  const page = await notionRequest<NotionPage>(token, LEGACY_VERSION, "GET", `/pages/${pageId}`);
+  const subject = subjectOf(page);
+  if (!subject || page.in_trash || page.archived) throw new NotionError("Stránka nepatří do žádné databáze Témata", 404);
+  return { page, subject };
 }
 
 /**
@@ -195,17 +211,41 @@ export async function updateTopic(
   pageId: string,
   action: TopicAction,
   timeZone = DEFAULT_TIME_ZONE,
-): Promise<Topic> {
+): Promise<{ topic: Topic; previous: Partial<TopicWriteProps>; written: Partial<TopicWriteProps> }> {
   const today = todayIn(timeZone);
-  const page = await notionRequest<NotionPage>(token, LEGACY_VERSION, "GET", `/pages/${pageId}`);
-  const subject = subjectOf(page);
-  if (!subject || page.in_trash || page.archived) throw new NotionError("Stránka nepatří do žádné databáze Témata", 404);
+  const { page, subject } = await readTopicPage(token, pageId);
+  const before = pageToTopic(page, subject, today);
 
-  const result = applyAction(action, pageToTopic(page, subject, today), today);
+  const result = applyAction(action, before, today);
   if (!result) throw new NotionError("Tohle téma už nejde posunout, obnov seznam", 409);
 
   const updated = await notionRequest<NotionPage>(token, LEGACY_VERSION, "PATCH", `/pages/${pageId}`, {
     properties: patchToProperties(result.patch),
+  });
+  // What the undo needs, taken from Notion's values right before the write.
+  const { previous, written } = buildUndoSnapshot(before, result.patch, "", 0);
+  return { topic: pageToTopic(updated, subject, today), previous, written };
+}
+
+/**
+ * Undo the last write: put back `previous`, but only while Notion still holds
+ * what the write set (`written`), so a change made elsewhere is never overwritten.
+ */
+export async function undoTopic(
+  token: string,
+  pageId: string,
+  previous: Partial<TopicWriteProps>,
+  written: Partial<TopicWriteProps>,
+  timeZone = DEFAULT_TIME_ZONE,
+): Promise<Topic> {
+  const today = todayIn(timeZone);
+  const { page, subject } = await readTopicPage(token, pageId);
+  const current = pageToTopic(page, subject, today);
+  const changed = (Object.keys(written) as (keyof TopicWriteProps)[]).some((k) => current[k] !== written[k]);
+  if (changed) throw new NotionError("Téma se mezitím změnilo v Notionu, vrátit nejde", 409);
+
+  const updated = await notionRequest<NotionPage>(token, LEGACY_VERSION, "PATCH", `/pages/${pageId}`, {
+    properties: writePropsToNotion(previous),
   });
   return pageToTopic(updated, subject, today);
 }

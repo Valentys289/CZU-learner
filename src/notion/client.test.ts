@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { fetchAllTopics, pageToTopic, updateTopic } from "./client";
+import { fetchAllTopics, pageToTopic, undoTopic, updateTopic, writePropsToNotion } from "./client";
 import { SUBJECTS } from "./config";
 
 const chemie = SUBJECTS.find((s) => s.code === "CH")!;
@@ -129,7 +129,7 @@ describe("updateTopic", () => {
     });
     vi.stubGlobal("fetch", fetchMock);
 
-    const topic = await updateTopic("tok", "abc", "hotovo");
+    const { topic, previous, written } = await updateTopic("tok", "abc", "hotovo");
 
     expect(fetchMock.mock.calls.map(([url, init]) => [init?.method, url])).toEqual([
       ["GET", "https://api.notion.com/v1/pages/abc"],
@@ -142,6 +142,8 @@ describe("updateTopic", () => {
       },
     });
     expect(topic).toMatchObject({ hotovo: "5 dní", posledni: "2026-10-26", termin: "2026-11-07", dueState: "upcoming" });
+    expect(previous).toEqual({ hotovo: "2 dny", posledni: "2026-10-18" });
+    expect(written).toEqual({ hotovo: "5 dní", posledni: "2026-10-26" });
   });
 
   it("refuses pages outside the Témata databases without writing", async () => {
@@ -158,5 +160,60 @@ describe("updateTopic", () => {
 
     await expect(updateTopic("tok", "abc", "nauceno")).rejects.toMatchObject({ status: 409 });
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("undoTopic", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status });
+  const inChemie = { ...page, parent: { type: "database_id", database_id: chemie.databaseId } };
+
+  it("PATCHes the previous values back while Notion still holds the written ones", async () => {
+    const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
+      if (init?.method !== "PATCH") return json(inChemie);
+      return json({ ...inChemie, properties: { ...inChemie.properties, Hotovo: { type: "select", select: { name: "večer" } } } });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const topic = await undoTopic("tok", "abc", { hotovo: "večer", posledni: null }, { hotovo: "2 dny", posledni: "2026-10-18" });
+
+    expect(JSON.parse(fetchMock.mock.calls[1][1]!.body as string)).toEqual({
+      properties: { Hotovo: { select: { name: "večer" } }, "Poslední opakování": { date: null } },
+    });
+    expect(topic.hotovo).toBe("večer");
+  });
+
+  it("refuses when the page changed since the write, without writing", async () => {
+    const fetchMock = vi.fn(async () => json(inChemie));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(undoTopic("tok", "abc", { hotovo: "večer" }, { hotovo: "5 dní" })).rejects.toMatchObject({ status: 409 });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("writePropsToNotion", () => {
+  it("clears with null and never writes Termín", () => {
+    const props = writePropsToNotion({ hotovo: null, nauceno: null, stav: null, posledni: "2026-10-26" });
+    expect(props).toEqual({
+      Hotovo: { select: null },
+      Naučeno: { date: null },
+      Stav: { select: null },
+      "Poslední opakování": { date: { start: "2026-10-26" } },
+    });
+    expect(props).not.toHaveProperty("Termín");
+  });
+});
+
+describe("fetchAllTopics when nothing loads", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("throws one error instead of six per-subject ones", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(JSON.stringify({ code: "unauthorized", message: "API token is invalid." }), { status: 401 })),
+    );
+    await expect(fetchAllTopics("tok")).rejects.toMatchObject({ status: 401 });
   });
 });

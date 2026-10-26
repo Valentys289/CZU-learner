@@ -345,3 +345,32 @@ button { font: inherit; color: inherit; }
 .ms-links a { color: var(--accent); font-weight: 600; text-decoration: none; }
 .past summary { cursor: pointer; list-style: revert; }
 .past .milestones { opacity: 0.75; }
+
+.setup { display: flex; flex-direction: column; gap: 12px; padding: 24px 0; }
+.setup h2 { margin: 0; font-size: 1.2rem; }
+.setup p { margin: 0; color: var(--muted); font-size: 0.92rem; }
+.setup .setup-reason { color: var(--text); font-weight: 600; }
+.setup input {
+  font: inherit;
+  padding: 12px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+}
+.setup-primary, .setup-secondary {
+  min-height: 44px;
+  border-radius: 10px;
+  font-weight: 700;
+  cursor: pointer;
+  border: 0;
+}
+.setup-primary { background: var(--accent); color: #fff; }
+.setup-secondary { background: var(--surface); color: var(--accent); box-shadow: inset 0 0 0 1.5px var(--accent); overflow-wrap: anywhere; padding: 8px 12px; }
+.setup-primary:disabled, .setup-secondary:disabled { opacity: 0.5; cursor: default; }
+.setup-error { color: var(--bad) !important; }
+@media (prefers-color-scheme: dark) { .setup-primary { color: #10291c; } }
+
+.toast-undo { background: var(--surface); border-color: var(--accent); }
+.toast .toast-undo-btn { color: var(--accent); }
+.toast button:disabled { opacity: 0.5; cursor: default; }

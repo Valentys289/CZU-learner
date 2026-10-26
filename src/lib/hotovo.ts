@@ -76,3 +76,77 @@ export function applyAction(action: TopicAction, t: ScheduleFields, today: strin
   if (action === "hotovo") return canMarkHotovo(t) ? afterHotovoClick({ ...t, today }) : null;
   return canMarkNauceno(t) ? afterNaucenoClick({ today }) : null;
 }
+
+/** The four properties the write buttons touch. null = empty in Notion. */
+export type TopicWriteProps = {
+  hotovo: Hotovo | null;
+  posledni: string | null;
+  nauceno: string | null;
+  stav: string | null;
+};
+
+export const UNDO_MS = 5000;
+
+/** Single-slot undo for the last successful write. */
+export type UndoSnapshot = {
+  pageId: string;
+  /** Values before the write, only for the fields the write changed. */
+  previous: Partial<TopicWriteProps>;
+  /** Values the write set, to detect that Notion changed in between. */
+  written: Partial<TopicWriteProps>;
+  label: string;
+  expiresAt: number;
+};
+
+const WRITE_KEYS = ["hotovo", "posledni", "nauceno", "stav"] as const;
+
+/** Snapshot of the fields `patch` changes, taken from the topic before the write. */
+export function buildUndoSnapshot(
+  before: TopicWriteProps & { id: string },
+  patch: TopicPatch,
+  label: string,
+  now: number,
+): UndoSnapshot {
+  const previous: Partial<TopicWriteProps> = {};
+  const written: Partial<TopicWriteProps> = {};
+  for (const key of WRITE_KEYS) {
+    if (patch[key] === undefined) continue;
+    (previous as Record<string, unknown>)[key] = before[key];
+    (written as Record<string, unknown>)[key] = patch[key];
+  }
+  return { pageId: before.id, previous, written, label, expiresAt: now + UNDO_MS };
+}
+
+/** The topic with the snapshot's previous values put back (Termín is recomputed by the caller). */
+export function applyUndo<T extends TopicWriteProps>(topic: T, snapshot: Pick<UndoSnapshot, "previous">): T {
+  return { ...topic, ...snapshot.previous };
+}
+
+export function isUndoActive(snapshot: Pick<UndoSnapshot, "expiresAt"> | null, now: number): boolean {
+  return snapshot !== null && now < snapshot.expiresAt;
+}
+
+const HOTOVO_SET: readonly string[] = ["Neučeno", "večer", "2 dny", "5 dní", "12 dní", "měsíc"];
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+/** Validate an undo body from the browser: only the 4 write fields, sane values. */
+export function parseWriteProps(input: unknown): Partial<TopicWriteProps> | null {
+  if (!input || typeof input !== "object" || Array.isArray(input)) return null;
+  const out: Partial<TopicWriteProps> = {};
+  for (const [key, value] of Object.entries(input)) {
+    if (!(WRITE_KEYS as readonly string[]).includes(key)) return null;
+    if (value === null) {
+      (out as Record<string, unknown>)[key] = null;
+    } else if (key === "hotovo") {
+      if (typeof value !== "string" || !HOTOVO_SET.includes(value)) return null;
+      out.hotovo = value as Hotovo;
+    } else if (key === "stav") {
+      if (typeof value !== "string" || value.length > 100) return null;
+      out.stav = value;
+    } else {
+      if (typeof value !== "string" || !DATE_RE.test(value)) return null;
+      (out as Record<string, unknown>)[key] = value;
+    }
+  }
+  return Object.keys(out).length > 0 ? out : null;
+}
