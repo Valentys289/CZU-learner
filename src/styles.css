@@ -306,3 +306,42 @@ button { font: inherit; color: inherit; }
 }
 .toast p { flex: 1; margin: 0; overflow-wrap: anywhere; }
 .toast button { border: 0; background: none; color: var(--bad); font-weight: 700; cursor: pointer; padding: 0; }
+
+.milestones { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.ms-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.ms-soft { border-style: dashed; background: transparent; }
+.ms-conflict { border-color: var(--warn); box-shadow: inset 4px 0 0 var(--warn); }
+.ms-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.ms-title { flex: 1; min-width: 0; font-weight: 600; overflow-wrap: anywhere; }
+.ms-flag, .ms-phase {
+  font-size: 0.72rem;
+  font-weight: 700;
+  border-radius: 6px;
+  padding: 3px 7px;
+  white-space: nowrap;
+}
+.ms-flag { color: var(--warn); background: var(--warn-bg); border: 1px solid var(--warn); }
+.ms-phase { color: var(--accent); background: var(--chip); }
+.ms-when { margin: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; font-weight: 600; }
+.ms-when-soft { font-weight: 400; color: var(--muted); font-style: italic; }
+.ms-countdown { font-weight: 400; font-size: 0.85rem; color: var(--muted); }
+.ms-note { margin: 0; font-size: 0.85rem; color: var(--muted); }
+.ms-progress { display: flex; align-items: center; gap: 10px; }
+.bar { flex: 1; height: 6px; border-radius: 999px; background: var(--chip); overflow: hidden; }
+.bar span { display: block; height: 100%; background: var(--accent); border-radius: inherit; }
+.ms-progress-label { font-size: 0.82rem; color: var(--muted); white-space: nowrap; }
+.bundles { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; }
+.chip-done { background: var(--accent); color: #fff; }
+@media (prefers-color-scheme: dark) { .chip-done { color: #10291c; } }
+.ms-links { display: flex; gap: 16px; font-size: 0.9rem; }
+.ms-links a { color: var(--accent); font-weight: 600; text-decoration: none; }
+.past summary { cursor: pointer; list-style: revert; }
+.past .milestones { opacity: 0.75; }
