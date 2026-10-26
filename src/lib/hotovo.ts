@@ -94,6 +94,8 @@ export type UndoSnapshot = {
   previous: Partial<TopicWriteProps>;
   /** Values the write set, to detect that Notion changed in between. */
   written: Partial<TopicWriteProps>;
+  /** Fáze 6: the Tréninky row the write created, archived again on undo. */
+  sessionId?: string;
   label: string;
   expiresAt: number;
 };

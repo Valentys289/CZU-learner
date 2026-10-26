@@ -15,11 +15,20 @@ import {
 } from "./lib/hotovo";
 import { TopicActionsContext, type TopicActions } from "./components/TopicActions";
 import { TokenSetup } from "./components/TokenSetup";
+import { SessionSheet } from "./components/SessionSheet";
+import { METHOD_LABEL, toPageId, type LastSession, type RetrievalMethod, type SessionWriteInput } from "./lib/sessions";
 import { desktop } from "./desktop";
 
 type Tab = "dnes" | "predmety" | "timeline";
 
-type Toast = { kind: "error"; message: string } | { kind: "undo"; snapshot: UndoSnapshot; busy: boolean };
+/** `restoreLast`: the topic's skóre chip before a logged session, put back on undo. */
+type Toast =
+  | { kind: "error"; message: string }
+  | { kind: "undo"; snapshot: UndoSnapshot; busy: boolean; restoreLast?: { last: LastSession | undefined } };
+
+type Sheet = { topicId: string; method?: RetrievalMethod };
+
+const isEmpty = (o: object) => Object.keys(o).length === 0;
 
 const TOKEN_CODES = ["no-token", "bad-token"];
 
@@ -42,6 +51,7 @@ export function App() {
   const [refreshing, setRefreshing] = useState(false);
   const [pending, setPending] = useState<ReadonlySet<string>>(new Set());
   const [toast, setToast] = useState<Toast | null>(null);
+  const [sheet, setSheet] = useState<Sheet | null>(null);
   const bridge = desktop();
   const stateRef = useRef(state);
   stateRef.current = state;
@@ -52,6 +62,16 @@ export function App() {
         ? { ...s, data: { ...s.data, topics: s.data.topics.map((t) => (t.id === topic.id ? topic : t)) } }
         : s,
     );
+  }, []);
+
+  const setLast = useCallback((topicId: string, last: LastSession | undefined) => {
+    setState((s) => {
+      if (s.status !== "ready") return s;
+      const map = { ...s.data.treninky.last };
+      if (last) map[toPageId(topicId)] = last;
+      else delete map[toPageId(topicId)];
+      return { ...s, data: { ...s.data, treninky: { ...s.data.treninky, last: map } } };
+    });
   }, []);
 
   const load = useCallback(async () => {
@@ -113,26 +133,76 @@ export function App() {
     [replaceTopic],
   );
 
+  /**
+   * Fáze 6: log a session from the sheet. Not optimistic: the sheet stays open
+   * with "Ukládám…" and shows Notion's error in place. Resolves to an error or null.
+   */
+  const saveSession = useCallback(
+    async (topic: Topic, input: SessionWriteInput): Promise<string | null> => {
+      const current = stateRef.current;
+      if (current.status !== "ready") return "Data nejsou načtená";
+      const prevLast = current.data.treninky.last[toPageId(topic.id)];
+      setToast(null);
+      setPending((p) => new Set(p).add(topic.id));
+      try {
+        const res = await fetch(`/api/topics/${topic.id}/session`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(input),
+        });
+        const json = await res.json().catch(() => ({}));
+        if (!res.ok) return json.error ?? `HTTP ${res.status}`;
+        replaceTopic(json.topic as Topic);
+        setLast(topic.id, { date: json.session.date, method: json.session.method, score: json.session.score });
+        setSheet(null);
+        const gap = !isEmpty(json.undo.written);
+        setToast({
+          kind: "undo",
+          busy: false,
+          restoreLast: { last: prevLast },
+          snapshot: {
+            pageId: topic.id,
+            previous: json.undo.previous,
+            written: json.undo.written,
+            sessionId: json.undo.sessionId,
+            label: `${METHOD_LABEL[input.method]}, skóre ${input.score}${gap ? ", gap posunut" : ""}: ${topic.title}`,
+            expiresAt: Date.now() + UNDO_MS,
+          },
+        });
+        return null;
+      } catch (err) {
+        return err instanceof Error ? err.message : String(err);
+      } finally {
+        setPending((p) => removeFrom(p, topic.id));
+      }
+    },
+    [replaceTopic, setLast],
+  );
+
   /** Zpět: put the previous values back in Notion. On failure reload, so the UI matches Notion. */
   const undo = useCallback(
-    async (snapshot: UndoSnapshot) => {
+    async (snapshot: UndoSnapshot, restoreLast?: { last: LastSession | undefined }) => {
       const current = stateRef.current;
       if (current.status !== "ready" || !isUndoActive(snapshot, Date.now())) return;
       const topic = current.data.topics.find((t) => t.id === snapshot.pageId);
       if (!topic) return;
 
-      setToast({ kind: "undo", snapshot, busy: true });
+      setToast({ kind: "undo", snapshot, busy: true, restoreLast });
       setPending((p) => new Set(p).add(topic.id));
       replaceTopic(withTermin(applyUndo(topic, snapshot), current.data.today));
       try {
         const res = await fetch(`/api/topics/${topic.id}/undo`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ previous: snapshot.previous, written: snapshot.written }),
+          body: JSON.stringify({
+            ...(isEmpty(snapshot.written) ? {} : { previous: snapshot.previous, written: snapshot.written }),
+            ...(snapshot.sessionId ? { sessionId: snapshot.sessionId } : {}),
+          }),
         });
         const json = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error(json.error ?? `HTTP ${res.status}`);
-        replaceTopic(json.topic as Topic);
+        replaceTopic((json.topic as Topic | undefined) ?? topic);
+        if (restoreLast) setLast(topic.id, restoreLast.last);
         setToast(null);
       } catch (err) {
         setToast({ kind: "error", message: `Vrátit se nepodařilo. ${err instanceof Error ? err.message : String(err)}` });
@@ -141,7 +211,7 @@ export function App() {
         setPending((p) => removeFrom(p, topic.id));
       }
     },
-    [replaceTopic, load],
+    [replaceTopic, setLast, load],
   );
 
   // The undo toast disappears after 5 s (unless Zpět is already running).
@@ -151,7 +221,18 @@ export function App() {
     return () => clearTimeout(timer);
   }, [toast]);
 
-  const actions = useMemo<TopicActions>(() => ({ run: (t, a) => void run(t, a), pending }), [run, pending]);
+  const lastMap = state.status === "ready" ? state.data.treninky.last : undefined;
+  const actions = useMemo<TopicActions>(
+    () => ({
+      run: (t, a) => void run(t, a),
+      openSession: (t, method) => setSheet({ topicId: t.id, method }),
+      pending,
+      lastSession: (id) => lastMap?.[toPageId(id)],
+    }),
+    [run, pending, lastMap],
+  );
+  const sheetTopic = sheet && state.status === "ready" ? state.data.topics.find((t) => t.id === sheet.topicId) : undefined;
+  const closeSheet = useCallback(() => setSheet(null), []);
 
 
   useEffect(() => {
@@ -222,11 +303,28 @@ export function App() {
             type="button"
             className="toast-undo-btn"
             disabled={toast.busy}
-            onClick={() => void undo(toast.snapshot)}
+            onClick={() => void undo(toast.snapshot, toast.restoreLast)}
           >
             {toast.busy ? "Vracím…" : "Zpět"}
           </button>
         </div>
+      )}
+
+      {sheetTopic && state.status === "ready" && (
+        <SessionSheet
+          key={sheetTopic.id}
+          topic={sheetTopic}
+          today={state.data.today}
+          initialMethod={sheet?.method}
+          configured={state.data.treninky.configured}
+          treninkyError={state.data.treninky.error}
+          onClose={closeSheet}
+          onSave={(input) => saveSession(sheetTopic, input)}
+          onPlainHotovo={() => {
+            setSheet(null);
+            void run(sheetTopic, "hotovo");
+          }}
+        />
       )}
 
       <nav className="tabs" aria-label="Sekce">

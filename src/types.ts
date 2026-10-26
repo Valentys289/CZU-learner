@@ -27,6 +27,7 @@ export type Topic = {
 };
 
 import type { MilnikyResponse } from "./timeline/types";
+import type { TreninkyResponse } from "./lib/sessions";
 
 export type SubjectError = { subject: SubjectCode; message: string };
 
@@ -37,4 +38,6 @@ export type TopicsResponse = {
   errors: SubjectError[];
   /** Timeline milestones (Notion Milníky DB). */
   milniky: MilnikyResponse;
+  /** Fáze 6 session log (Notion Tréninky DB): last skóre per topic. */
+  treninky: TreninkyResponse;
 };

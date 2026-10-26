@@ -1,8 +1,8 @@
 import type { Plugin } from "vite";
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { fetchAllTopics, NotionError, undoTopic, updateTopic } from "../notion/client";
+import { fetchAllTopics, fetchSessions, logSession, NotionError, undoSession, undoTopic, updateTopic } from "../notion/client";
 import { parseWriteProps, type TopicAction } from "../lib/hotovo";
-import { DEFAULT_TIME_ZONE, MILNIKY } from "../notion/config";
+import { DEFAULT_TIME_ZONE, MILNIKY, TRENINKY } from "../notion/config";
 
 export const API_PREFIX = "/api/topics";
 const MAX_BODY = 16 * 1024;
@@ -38,7 +38,9 @@ function readJson(req: IncomingMessage): Promise<unknown> {
  *   GET  /api/topics                      all topics
  *   POST /api/topics/{pageId}/hotovo      Fáze 2 write
  *   POST /api/topics/{pageId}/nauceno     Fáze 2 write
- *   POST /api/topics/{pageId}/undo        { previous, written }: revert the last write
+ *   POST /api/topics/{pageId}/session     Fáze 6: { method, score, date?, advanceGap } → Tréninky row (+ Hotovo)
+ *   GET  /api/topics/{pageId}/sessions    Fáze 6: last 10 Tréninky rows of the topic
+ *   POST /api/topics/{pageId}/undo        { previous?, written?, sessionId? }: revert the last write
  *
  * `subpath` is the part after /api/topics.
  */
@@ -46,6 +48,7 @@ export function createApiHandler(
   getToken: () => string | undefined,
   timeZone = DEFAULT_TIME_ZONE,
   milnikyDatabaseId: string | null = MILNIKY.databaseId,
+  treninkyDatabaseId: string | null = TRENINKY.databaseId,
 ) {
   function send(res: ServerResponse, status: number, body: unknown) {
     res.statusCode = status;
@@ -56,31 +59,45 @@ export function createApiHandler(
     res.setHeader("Content-Type", "application/json; charset=utf-8");
     res.setHeader("Cache-Control", "no-store");
     const path = subpath.split("?")[0];
-    const write = /^\/([0-9a-fA-F-]{32,36})\/(hotovo|nauceno|undo)$/.exec(path);
+    const write = /^\/([0-9a-fA-F-]{32,36})\/(hotovo|nauceno|undo|session)$/.exec(path);
+    const history = /^\/([0-9a-fA-F-]{32,36})\/sessions$/.exec(path);
     const isRead = path === "/" || path === "";
 
-    if (!(isRead && req.method === "GET") && !(write && req.method === "POST")) {
-      return send(res, isRead || write ? 405 : 404, { error: "Neplatný požadavek" });
+    if (!((isRead || history) && req.method === "GET") && !(write && req.method === "POST")) {
+      return send(res, isRead || write || history ? 405 : 404, { error: "Neplatný požadavek" });
     }
     const token = getToken();
     if (!token) return send(res, 500, { error: "Chybí NOTION_TOKEN", code: NO_TOKEN });
 
     try {
+      if (history) {
+        return send(res, 200, { sessions: await fetchSessions(token, treninkyDatabaseId, history[1]) });
+      }
+      if (write && write[2] === "session") {
+        return send(res, 200, await logSession(token, treninkyDatabaseId, write[1], await readJson(req), timeZone));
+      }
       if (write && write[2] === "undo") {
-        const body = (await readJson(req)) as { previous?: unknown; written?: unknown } | null;
-        const previous = parseWriteProps(body?.previous);
-        const written = parseWriteProps(body?.written);
-        if (!previous || !written) return send(res, 400, { error: "Neplatná data pro vrácení" });
-        return send(res, 200, { topic: await undoTopic(token, write[1], previous, written, timeZone) });
+        const body = (await readJson(req)) as { previous?: unknown; written?: unknown; sessionId?: unknown } | null;
+        const hasTopic = body?.previous !== undefined || body?.written !== undefined;
+        const previous = hasTopic ? parseWriteProps(body?.previous) : null;
+        const written = hasTopic ? parseWriteProps(body?.written) : null;
+        const sessionId = typeof body?.sessionId === "string" && /^[0-9a-fA-F-]{32,36}$/.test(body.sessionId) ? body.sessionId : null;
+        if ((hasTopic && (!previous || !written)) || (!hasTopic && !sessionId) || (body?.sessionId !== undefined && !sessionId)) {
+          return send(res, 400, { error: "Neplatná data pro vrácení" });
+        }
+        // Topic first: if Notion changed in between (409), the log row stays too.
+        const topic = previous && written ? await undoTopic(token, write[1], previous, written, timeZone) : undefined;
+        if (sessionId) await undoSession(token, treninkyDatabaseId, sessionId, write[1]);
+        return send(res, 200, { topic });
       }
       if (write) {
         const { topic, previous, written } = await updateTopic(token, write[1], write[2] as TopicAction, timeZone);
         return send(res, 200, { topic, undo: { previous, written } });
       }
-      send(res, 200, await fetchAllTopics(token, timeZone, milnikyDatabaseId));
+      send(res, 200, await fetchAllTopics(token, timeZone, milnikyDatabaseId, treninkyDatabaseId));
     } catch (err) {
       send(res, err instanceof NotionError && err.status < 500 ? err.status : 502, {
-        error: errorMessage(err, Boolean(write)),
+        error: errorMessage(err, Boolean(write), write?.[2] === "session"),
         ...(err instanceof NotionError && err.status === 401 ? { code: BAD_TOKEN } : {}),
       });
     }
@@ -93,6 +110,7 @@ export function notionApi(env: Record<string, string>): Plugin {
     () => env.NOTION_TOKEN,
     env.TZ || DEFAULT_TIME_ZONE,
     env.NOTION_MILNIKY_DB || MILNIKY.databaseId,
+    env.NOTION_TRENINKY_DB || TRENINKY.databaseId,
   );
   const mount = (server: { middlewares: { use: (path: string, fn: (req: IncomingMessage, res: ServerResponse) => void) => void } }) =>
   {
@@ -107,7 +125,10 @@ export function notionApi(env: Record<string, string>): Plugin {
   };
 }
 
-function errorMessage(err: unknown, write: boolean): string {
+function errorMessage(err: unknown, write: boolean, session = false): string {
+  if (session && err instanceof NotionError && err.status === 403) {
+    return "Integrace nemá oprávnění Insert content. Zapni ho v Notionu u připojení ČZU Study Dashboard (Tréninky).";
+  }
   if (write && err instanceof NotionError && err.status === 403) {
     return "Integrace nemá oprávnění Update content. Zapni ho v Notionu u připojení ČZU Study Dashboard.";
   }

@@ -29,6 +29,10 @@ export function PredmetyTab({ topics, today, errors }: { topics: Topic[]; today:
         const overdue = due.filter((t) => t.dueState === "overdue").length;
         const dueToday = due.length - overdue;
         const notLearned = mine.filter(isNotLearned).sort(byDeadline);
+        // Learned but not due: extra practice only (Trénink, log without moving the gap by default).
+        const others = mine
+          .filter((t) => !isNotLearned(t) && !due.includes(t))
+          .sort((a, b) => (a.termin ?? "9999").localeCompare(b.termin ?? "9999") || a.title.localeCompare(b.title, "cs"));
         const error = errors.find((e) => e.subject === s.code);
         const isOpen = open === s.code;
 
@@ -76,6 +80,18 @@ export function PredmetyTab({ topics, today, errors }: { topics: Topic[]; today:
                   </>
                 )}
                 {due.length === 0 && notLearned.length === 0 && <p className="empty small">Nic k řešení</p>}
+                {others.length > 0 && (
+                  <details className="others">
+                    <summary className="sub-title">
+                      Ostatní naučená <span className="count">{others.length}</span>
+                    </summary>
+                    <ul className="topics">
+                      {others.map((t) => (
+                        <TopicRow key={t.id} topic={t} today={today} showBadge={false} />
+                      ))}
+                    </ul>
+                  </details>
+                )}
               </div>
             )}
           </li>
