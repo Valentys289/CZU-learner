@@ -4,8 +4,6 @@ export type MilestoneKind = "zapocet" | "zkouska" | "test" | "odevzdani" | "soft
 
 export type MilestoneSource =
   | "notion-milniky"
-  /** Temporary only, while the Milníky DB ID is missing from config. */
-  | "baseline-fallback"
   | "conflict";
 
 /** One row of the Notion Milníky DB, as the server reads it. Property names in MILNIKY_PROP. */
@@ -31,7 +29,7 @@ export type MilnikyRow = {
   linkPlan: string | null;
 };
 
-export type MilnikySource = "notion" | "baseline";
+export type MilnikySource = "notion" | "unconfigured";
 
 /** What GET /api/topics returns about milestones. */
 export type MilnikyResponse = {

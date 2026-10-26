@@ -222,7 +222,6 @@ describe("buildTimeline", () => {
   it("test 2 is the first upcoming card with progress from loaded topics; test 1 is past", () => {
     const topics = [topic("M", "Inverzní funkce", "večer", "2026-10-25"), topic("CH", "Inverzní funkce", "měsíc", "2026-09-01")];
     const tl = buildTimeline(topics, notion(rows()), TODAY);
-    expect(tl.fallback).toBe(false);
     expect(tl.milestones.map((m) => [m.title, groupOf(m, TODAY)])).toEqual([
       ["Zápočtový test 2", "upcoming"],
       ["Esej", "soft"],
@@ -238,17 +237,9 @@ describe("buildTimeline", () => {
     expect(tl.milestones).toEqual([]);
   });
 
-  it("without a configured Milníky DB it falls back to the baseline, flagged", () => {
-    const tl = buildTimeline([], { source: "baseline", rows: [], error: "Chybí Milníky DB v config" }, TODAY);
-    expect(tl.fallback).toBe(true);
-    expect(tl.milestones.every((m) => m.sources.includes("baseline-fallback"))).toBe(true);
-    const test2 = tl.milestones.find((m) => m.title === "Zápočtový test 2")!;
-    expect(test2).toMatchObject({ date: "2026-12-05", time: "08:45", place: "MI" });
-    const ch = tl.milestones.find((m) => m.subject === "CH")!;
-    expect(ch.conflictDates).toEqual(["2027-01-05", "2027-01-06"]);
-    for (const title of ["Esej", "Excel 1. pokus", "Zápočet = docházka"]) {
-      expect(tl.milestones.find((m) => m.title === title)?.date).toBeNull();
-    }
+  it("without a configured Milníky DB there are no cards, never invented dates", () => {
+    const tl = buildTimeline([], { source: "unconfigured", rows: [], error: "Chybí Milníky DB v config" }, TODAY);
+    expect(tl.milestones).toEqual([]);
   });
 
   it("reports active rows with an unknown subject", () => {

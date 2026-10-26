@@ -165,10 +165,10 @@ export function pageToMilnikyRow(page: NotionPage): MilnikyRow {
   };
 }
 
-/** Read the Milníky DB. Without a configured ID, says so (the UI then shows the temporary baseline). */
+/** Read the Milníky DB. Without a configured ID, says so clearly instead of showing any dates. */
 export async function fetchMilniky(token: string, databaseId: string | null): Promise<MilnikyResponse> {
   if (!databaseId) {
-    return { source: "baseline", rows: [], error: "Chybí Milníky DB v config, DEKAN doplní ID" };
+    return { source: "unconfigured", rows: [], error: "Chybí Milníky DB v config, DEKAN doplní ID" };
   }
   try {
     const pages = await queryDatabase(token, databaseId);

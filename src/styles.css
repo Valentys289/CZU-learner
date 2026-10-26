@@ -374,4 +374,3 @@ button { font: inherit; color: inherit; }
 .toast-undo { background: var(--surface); border-color: var(--accent); }
 .toast .toast-undo-btn { color: var(--accent); }
 .toast button:disabled { opacity: 0.5; cursor: default; }
-.banner-fallback { border-color: var(--warn); background: var(--warn-bg); }

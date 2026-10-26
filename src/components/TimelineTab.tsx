@@ -19,22 +19,16 @@ const formatTime = (time: string) => time.replace(/^0(\d:)/, "$1");
 
 /** Timeline = only Milníky cards. Learning topics stay on Dnes / Předměty. */
 export function TimelineTab({ topics, milniky, today }: { topics: Topic[]; milniky: MilnikyResponse; today: string }) {
-  const { milestones, fallback, skipped } = buildTimeline(topics, milniky, today);
+  const { milestones, skipped } = buildTimeline(topics, milniky, today);
   const upcoming = milestones.filter((m) => groupOf(m, today) === "upcoming");
   const soft = milestones.filter((m) => groupOf(m, today) === "soft");
   const past = milestones.filter((m) => groupOf(m, today) === "past");
 
   return (
     <>
-      {fallback && (
-        <div className="error banner-fallback" role="alert">
-          <strong>Dočasný baseline, přepnout na Notion Milníky</strong>
-          <p>{(milniky.error ?? "Milníky DB není nastavená").replace(/\.?$/, ".")} Termíny níže nejsou z Notionu.</p>
-        </div>
-      )}
-      {!fallback && milniky.error && (
+      {milniky.error && (
         <div className="error" role="alert">
-          <strong>Milníky z Notionu se nenačetly</strong>
+          <strong>{milniky.source === "unconfigured" ? "Chybí Milníky DB" : "Milníky z Notionu se nenačetly"}</strong>
           <p>{milniky.error}</p>
         </div>
       )}

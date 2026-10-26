@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { fetchAllTopics, fetchMilniky, pageToMilnikyRow, pageToTopic, undoTopic, updateTopic, writePropsToNotion } from "./client";
-import { SUBJECTS } from "./config";
+import { MILNIKY, SUBJECTS } from "./config";
 
 const chemie = SUBJECTS.find((s) => s.code === "CH")!;
 
@@ -57,7 +57,7 @@ describe("fetchAllTopics request routing", () => {
   const empty = { object: "list", results: [], has_more: false, next_cursor: null };
   const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status });
 
-  it("queries every subject by database block ID, never by collection ID", async () => {
+  it("queries every subject and Milníky by database block ID, never by collection ID", async () => {
     const fetchMock = vi.fn(async (_url: string, _init?: RequestInit) => json({ ...empty, results: [page] }));
     vi.stubGlobal("fetch", fetchMock);
 
@@ -66,8 +66,10 @@ describe("fetchAllTopics request routing", () => {
 
     expect(res.errors).toEqual([]);
     expect(res.topics).toHaveLength(SUBJECTS.length);
-    expect(urls).toEqual(SUBJECTS.map((s) => `https://api.notion.com/v1/databases/${s.databaseId}/query`));
-    for (const s of SUBJECTS) expect(urls.join()).not.toContain(s.collectionId);
+    expect(urls).toEqual(
+      [...SUBJECTS, MILNIKY].map((s) => `https://api.notion.com/v1/databases/${s.databaseId}/query`),
+    );
+    for (const s of [...SUBJECTS, MILNIKY]) expect(urls.join()).not.toContain(s.collectionId);
   });
 
   it("resolves the real data source when the legacy endpoint refuses the database", async () => {
@@ -268,11 +270,11 @@ describe("Milníky DB", () => {
     expect(pageToMilnikyRow({ ...milnik, properties: rest }).aktivni).toBe(true);
   });
 
-  it("without a configured ID: no request, baseline source with a Czech error", async () => {
+  it("without a configured ID: no request, a clear Czech error", async () => {
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
     expect(await fetchMilniky("tok", null)).toEqual({
-      source: "baseline",
+      source: "unconfigured",
       rows: [],
       error: "Chybí Milníky DB v config, DEKAN doplní ID",
     });

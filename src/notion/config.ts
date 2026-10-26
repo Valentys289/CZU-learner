@@ -80,13 +80,12 @@ export const PROP = {
 
 /**
  * Notion Milníky DB (Fáze 5): tests, zápočty, deadlines and soft terms for the
- * Timeline. DEKAN creates it under SČHOOL and fills in its database block ID
- * here. Until then the Timeline shows a temporary baseline with a warning.
+ * Timeline, under SČHOOL. Queried by database block ID like the subjects.
  * In `npm run dev` / `electron:dev`, NOTION_MILNIKY_DB in .env.local overrides it.
  */
 export const MILNIKY: { databaseId: string | null; collectionId: string | null } = {
-  databaseId: null,
-  collectionId: null,
+  databaseId: "8407eccc-a370-4006-8b5b-28f4a3071029",
+  collectionId: "ac4c269a-5454-4a2e-8b22-4c5ad2112339",
 };
 
 /** Property names on the Milníky DB. */

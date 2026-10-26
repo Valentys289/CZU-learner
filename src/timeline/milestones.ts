@@ -1,7 +1,6 @@
 import type { SubjectCode, Topic } from "../types";
 import { SUBJECTS } from "../notion/config";
 import { daysBetween, isNeuceno, toDateOnly } from "../lib/termin";
-import { BASELINE_FALLBACK } from "./baseline";
 import { PHASE_RULES } from "./config";
 import type { Milestone, MilestoneKind, MilnikyResponse, MilnikyRow, Progress, ProgressItem } from "./types";
 
@@ -80,7 +79,7 @@ function parseConflict(csv: string | null): string[] {
  * whose Předmět is not one of the 6 subjects. Never invents a date: an empty
  * Datum stays a soft row.
  */
-export function milnikyRowToMilestone(row: MilnikyRow, fallback = false): Milestone | null {
+export function milnikyRowToMilestone(row: MilnikyRow): Milestone | null {
   if (!row.aktivni) return null;
   const subject = subjectCode(row.predmet);
   if (!subject) return null;
@@ -99,7 +98,7 @@ export function milnikyRowToMilestone(row: MilnikyRow, fallback = false): Milest
     place: row.misto?.trim() || null,
     softText: row.softText?.trim() || null,
     note: row.poznamka?.trim() || null,
-    sources: [fallback ? "baseline-fallback" : "notion-milniky", ...(hasConflict ? (["conflict"] as const) : [])],
+    sources: ["notion-milniky", ...(hasConflict ? (["conflict"] as const) : [])],
     ...(hasConflict ? { conflictDates: conflict } : {}),
     order: row.poradi,
     topicIds: [],
@@ -159,25 +158,20 @@ export function studyPhase(m: Pick<Milestone, "subject" | "title" | "progress">,
 
 export type Timeline = {
   milestones: Milestone[];
-  /** True while the temporary baseline is used instead of Notion Milníky. */
-  fallback: boolean;
   /** Rows skipped because Předmět is not one of the 6 subjects. */
   skipped: string[];
 };
 
 /**
- * Timeline cards from Notion Milníky (or, only while unconfigured, the temporary
- * baseline), with progress from the already loaded topics. Topics never become
+ * Timeline cards from Notion Milníky, with progress from the already loaded topics. Topics never become
  * cards here: Témata Deadline is the study plan, not an exam.
  */
 export function buildTimeline(topics: Topic[], milniky: MilnikyResponse, today: string): Timeline {
-  const fallback = milniky.source === "baseline";
-  const rows = fallback ? BASELINE_FALLBACK : milniky.rows;
   const skipped: string[] = [];
   const milestones: Milestone[] = [];
 
-  for (const row of rows) {
-    const m = milnikyRowToMilestone(row, fallback);
+  for (const row of milniky.rows) {
+    const m = milnikyRowToMilestone(row);
     if (!m) {
       if (row.aktivni) skipped.push(row.nazev);
       continue;
@@ -193,5 +187,5 @@ export function buildTimeline(topics: Topic[], milniky: MilnikyResponse, today: 
     }
     milestones.push(m);
   }
-  return { milestones: sortMilestones(milestones, today), fallback, skipped };
+  return { milestones: sortMilestones(milestones, today), skipped };
 }

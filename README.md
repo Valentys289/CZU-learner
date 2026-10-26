@@ -208,10 +208,10 @@ Sections: **Blížící se** (soonest first), **Bez data**, **Minulé** (collaps
 ### Wiring the DB (DEKAN)
 
 1. Create the DB under SČHOOL with the properties above, share it with the **ČZU Study Dashboard** connection, seed the rows.
-2. Put its database block ID into `MILNIKY.databaseId` in `src/notion/config.ts`.
-3. To try it before that change lands: `NOTION_MILNIKY_DB=<database block id>` in `.env.local` (works with `npm run dev` and `npm run electron:dev`).
+2. Its database block ID is in `MILNIKY.databaseId` in `src/notion/config.ts` (`8407eccc-a370-4006-8b5b-28f4a3071029`, data source `ac4c269a-5454-4a2e-8b22-4c5ad2112339`).
+3. To point a dev build at another DB: `NOTION_MILNIKY_DB=<database block id>` in `.env.local` (works with `npm run dev` and `npm run electron:dev`).
 
-Until the ID is set, the Timeline shows a **temporary baseline** (`src/timeline/baseline.ts`) under a warning banner "Dočasný baseline, přepnout na Notion Milníky". Delete that file once the DB is wired in. If the DB is configured but cannot be read, the app shows the error and no invented dates.
+There is no hardcoded fallback. If the ID is missing the Timeline says "Chybí Milníky DB"; if the DB cannot be read (for example it is not shared with the connection) it shows the error. Either way no invented dates.
 
 ### Chemie conflict
 
