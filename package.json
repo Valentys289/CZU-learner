@@ -1,6 +1,6 @@
 {
   "name": "czu-study-dashboard",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -53,7 +53,7 @@
         "provider": "github",
         "owner": "Valentys289",
         "repo": "CZU-learner",
-        "releaseType": "release"
+        "releaseType": "draft"
       }
     ]
   }
