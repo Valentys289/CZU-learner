@@ -5,8 +5,12 @@ import {
   buildSessionRow,
   defaultAdvanceGap,
   lastSessionByTopic,
+  METHODS,
   normalizeScore,
+  orderedMethods,
   parseSessionInput,
+  PREFERRED_METHODS,
+  preferredMethodsFor,
   sessionPatch,
   toPageId,
   type TrainingSession,
@@ -132,5 +136,38 @@ describe("toPageId / lastSessionByTopic", () => {
     expect(lastSessionByTopic([s("1", a, "2026-10-26", 4), s("2", a, "2026-10-20", 1), s("3", a, "2026-10-26", 2)])).toEqual({
       [a]: { date: "2026-10-26", method: "flashcards", score: 4 },
     });
+  });
+});
+
+describe("preferred methods (Fáze 7 E)", () => {
+  it("each subject's preferred list uses valid keys only", () => {
+    for (const list of Object.values(PREFERRED_METHODS)) for (const m of list) expect(METHODS).toContain(m);
+  });
+
+  it("preferredMethodsFor returns the configured order; unknown subject falls back to all methods", () => {
+    expect(preferredMethodsFor("M")).toEqual(["generatedQs", "brainDump", "flashcards"]);
+    expect(preferredMethodsFor("CH")).toEqual(["flashcards", "quizlet", "generatedQs"]);
+    expect(preferredMethodsFor("XX")).toEqual([...METHODS]);
+  });
+
+  it("orderedMethods: preferred first, no duplicates, every method still available", () => {
+    for (const subject of [...Object.keys(PREFERRED_METHODS), "XX"]) {
+      const order = orderedMethods(subject);
+      expect(new Set(order).size).toBe(order.length);
+      expect([...order].sort()).toEqual([...METHODS].sort());
+      expect(order.slice(0, preferredMethodsFor(subject).length)).toEqual(preferredMethodsFor(subject));
+    }
+    expect(orderedMethods("M")).toEqual(["generatedQs", "brainDump", "flashcards", "quizlet", "other"]);
+    expect(orderedMethods("AJ")[0]).toBe("quizlet");
+  });
+
+  it("Matematika and Chemie open with different defaults", () => {
+    expect(orderedMethods("M")[0]).not.toBe(orderedMethods("CH")[0]);
+  });
+
+  it("the Quizlet save still validates skóre and the gap rule does not change", () => {
+    expect(parseSessionInput({ method: "quizlet", score: 0, advanceGap: false }, TODAY)).toEqual({ ok: false, error: "Skóre musí být 1 až 5" });
+    expect(parseSessionInput({ method: "quizlet", score: 2, advanceGap: false }, TODAY)).toMatchObject({ ok: true });
+    expect(defaultAdvanceGap({ ...topic, dueState: "today" })).toBe(true);
   });
 });

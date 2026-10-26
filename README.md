@@ -186,6 +186,21 @@ Fáze 6 replaces the one-shot **Hotovo** with a small session tracker. The sourc
 - **Historie** in the sheet lists the topic's last 10 sessions (newest first). Rows show the last skóre as a chip (red 1 and 2, amber 3, green 4 and 5).
 - **Naučeno dnes** stays a one-tap first learn with no session row.
 
+### Preferované metody
+
+Each subject has a short list of preferred methods in `PREFERRED_METHODS` (`src/lib/sessions.ts`). It is app config, not a Notion property, so changing it is a code edit:
+
+| Předmět | Preferované |
+|---------|-------------|
+| M | Generated Qs, Brain dump, Flashcards |
+| CH | Flashcards, Quizlet, Generated Qs |
+| ICT | Flashcards, Generated Qs, Jiné |
+| TD | Brain dump, Jiné, Flashcards |
+| UE | Flashcards, Jiné |
+| AJ | Quizlet, Flashcards, Generated Qs |
+
+The sheet lists the preferred methods first and preselects the first one; the other methods stay available after them, dimmed. The open subject card in Předměty shows the list as *Metody: …*. With Skóre 1 or 2 the sheet adds a short tip ("Zkus příště jinou metodu."); it does not change the gap. Quizlet stays a manual log plus the optional `Odkaz` link. The *3. Retrieval* checklist in the topic body is not the session log: Tréninky is.
+
 ### Hotovo gap rule
 
 | Topic | Posunout gap default | Uložit does |

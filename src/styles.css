@@ -467,3 +467,8 @@ button { font: inherit; color: inherit; }
 .history li { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; font-size: 0.9rem; }
 .history-date { color: var(--muted); min-width: 64px; }
 .history-gap { font-size: 0.78rem; color: var(--muted); }
+
+/* Fáze 7 E: preferred methods */
+.seg-other { color: var(--muted); }
+.sheet-tip { margin: 0; font-size: 0.85rem; color: var(--warn); font-weight: 600; }
+.card-methods { margin: 10px 0 0; font-size: 0.85rem; color: var(--muted); }
