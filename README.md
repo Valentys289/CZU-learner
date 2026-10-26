@@ -262,22 +262,33 @@ There is no hardcoded fallback. If the ID is missing the Timeline says "Chybí M
 
 The zápočtová písemka is **not resolved**: the Chemie page and the 23. 10. lecture summary say **út 5. 1. 2027**, Termíny ČZU says **6. 1. 2027**. In Milníky set `Konflikt data` to `2027-01-05,2027-01-06`; the card shows both dates with Konflikt zdrojů. Once the real date is confirmed, clear `Konflikt data`.
 
-## Updates (Fáze 5b)
+## Updates (in-place)
 
-The installed app checks for a newer version 5 s after launch (quietly) and from the menu **CZU Study Dashboard → Zkontrolovat aktualizace…**. If a newer GitHub Release exists, it offers **Stáhnout**: the new `.dmg` goes to Stažené soubory and opens; quit the app, drag it over the old one in Applications, start it again.
+The installed app checks for a newer version 5 s after launch (quietly) and from the menu **CZU Study Dashboard → Zkontrolovat aktualizace…**. If a newer GitHub Release exists, it offers **Aktualizovat**:
 
-Why not a silent in-place update: the app is not signed with an Apple Developer ID, and macOS (Squirrel.Mac, used by `electron-updater`) refuses to install updates into unsigned apps. With a Developer ID this can be switched to `electron-updater`.
+1. Downloads the release's `.zip` (progress on the Dock icon) into a temp folder and unpacks it with `ditto`.
+2. Checks the bundle: same app ID (`build.appId`) and the version of the release tag. Anything else is refused and the installed app stays as it is.
+3. Quits. A small script waits for the app to exit, moves the new `.app` over the old one in Applications (keeping the old one until the new one is in place, restoring it if the move fails) and starts the new version.
 
-**Private repo:** GitHub's API does not show releases of a private repo without a login, so the in-app check cannot see them. In that case the menu item opens the Releases page in the browser (where you are logged in) and the quiet launch check stays silent. Making releases visible to the app needs either a public repo or a separate public repo just for releases (change `RELEASES` in `electron/update.ts` and `build.publish` in `package.json`).
+No Finder, no `.dmg`, no drag and drop. This is done by the app itself because it is not signed with an Apple Developer ID: macOS (Squirrel.Mac, used by `electron-updater`) refuses to install updates into unsigned apps.
+
+When the app cannot replace itself, it falls back to the old way (the `.dmg` goes to Stažené soubory and opens) and says why: it runs straight from the mounted `.dmg`, macOS runs it from a temporary copy (App Translocation, after opening it outside Applications), or the folder is not writable.
+
+The app reads `GET /repos/{owner}/{repo}/releases` (the repo is public, no login needed), takes the newest published version and merges the assets of every release with that tag.
+
+**First time:** an app older than 0.7.0 does not have this yet, so install 0.7.0 by hand once (download the `.dmg` from Releases, drag to Applications, Nahradit). Every later update installs itself.
 
 ### Publishing a release
 
 ```text
-bump "version" in package.json → commit → git tag v0.5.0 && git push origin v0.5.0
-→ .github/workflows/release.yml builds on macOS and publishes the GitHub Release (.dmg, .zip, latest-mac.yml)
+bump "version" in package.json → commit → git tag v0.7.0 && git push origin v0.7.0
+→ .github/workflows/release.yml: creates the release as a draft, builds on macOS,
+  uploads .dmg, .zip and latest-mac.yml, then publishes it as latest
 ```
 
-Or locally on the Mac: `GH_TOKEN=<token with repo access> npm run electron:publish`. Never commit the token.
+The draft is created first on purpose: when electron-builder creates the release itself, the `.dmg` and `.zip` uploads race and one tag can end up with two half-filled releases.
+
+Or locally on the Mac: `GH_TOKEN=<token with repo access> npm run electron:publish`, then publish the draft on GitHub. Never commit the token.
 
 ## Out of scope
 
