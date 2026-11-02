@@ -18,6 +18,8 @@ const bridge: DesktopBridge = {
     ipcRenderer.on("czu:navigate", listener);
     return () => void ipcRenderer.removeListener("czu:navigate", listener);
   },
+  prefGet: (key) => ipcRenderer.invoke("czu:prefGet", key),
+  prefSet: (key, value) => ipcRenderer.invoke("czu:prefSet", key, value),
 };
 
 contextBridge.exposeInMainWorld("czuDesktop", bridge);

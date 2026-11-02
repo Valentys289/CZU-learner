@@ -17,6 +17,7 @@ const isDev = !app.isPackaged;
 const appRoot = app.getAppPath();
 const distDir = join(appRoot, "dist");
 const tokenFile = () => join(app.getPath("userData"), "notion-token.bin");
+const prefsFile = () => join(app.getPath("userData"), "prefs.json");
 
 // ---------- token ----------
 
@@ -275,6 +276,36 @@ ipcMain.handle("czu:importEnvToken", (event) => {
 ipcMain.handle("czu:saveToken", (event, token: unknown) =>
   isOurs(event) && typeof token === "string" ? saveToken(token.trim()) : { ok: false },
 );
+
+// ---------- UI prefs (Fáze 9 C) ----------
+// Plain JSON of string values in userData, so it survives restarts and updates.
+
+const PREF_KEY = /^[A-Za-z0-9._-]{1,64}$/;
+const PREF_MAX = 10_000;
+
+function readPrefs(): Record<string, string> {
+  try {
+    const value: unknown = JSON.parse(readFileSync(prefsFile(), "utf8"));
+    return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, string>) : {};
+  } catch {
+    return {};
+  }
+}
+
+ipcMain.handle("czu:prefGet", (event, key: unknown) => {
+  if (!isOurs(event) || typeof key !== "string" || !PREF_KEY.test(key)) return null;
+  const value = readPrefs()[key];
+  return typeof value === "string" ? value : null;
+});
+ipcMain.handle("czu:prefSet", (event, key: unknown, value: unknown) => {
+  if (!isOurs(event) || typeof key !== "string" || !PREF_KEY.test(key)) return;
+  if (typeof value !== "string" || value.length > PREF_MAX) return;
+  try {
+    writeFileSync(prefsFile(), JSON.stringify({ ...readPrefs(), [key]: value }));
+  } catch {
+    // Not fatal: the choice just won't persist.
+  }
+});
 
 app.setName(APP_TITLE);
 

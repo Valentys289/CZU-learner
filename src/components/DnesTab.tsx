@@ -2,9 +2,12 @@ import type { Topic } from "../types";
 import { dnesList } from "../lib/termin";
 import { addDays } from "../lib/termin";
 import { dueCounts, ENCODING_HORIZON_DAYS, encodingDueSoon, isEncodingTopic, openTasks } from "../lib/phase";
-import { pluralNovychTemat, pluralUkolu } from "../lib/format";
+import { pluralNovychTemat, pluralUkolu, skrytoPredmetu } from "../lib/format";
+import { filterHidden, subjectsIn } from "../lib/hidden";
+import { SUBJECTS } from "../notion/config";
 import { TopicRow } from "./TopicRow";
 import { TaskRow } from "./TaskRow";
+import { useHiddenSubjects } from "./useHiddenSubjects";
 
 /**
  * Dnes: due retrieval (Po termínu, Dnes) and, separately, encoding work with a
@@ -14,12 +17,18 @@ import { TaskRow } from "./TaskRow";
  * Fáze 9 B: open úkoly (Typ = Úkol) get their own Úkoly section above Učím nové
  * (Deadline within the same horizon, or no Deadline); overdue / today ones count
  * into Po termínu / Dnes the same way. The section is hidden while there are no úkoly.
+ * Subjects can be hidden in Učím nové only (Fáze 9 C); every count above ignores that.
  */
 export function DnesTab({ topics, today, onOpenPredmety }: { topics: Topic[]; today: string; onOpenPredmety?: () => void }) {
   const list = dnesList(topics); // retrieval only, unchanged
   const overdue = list.filter((t) => t.dueState === "overdue");
   const dueToday = list.filter((t) => t.dueState === "today");
   const encoding = encodingDueSoon(topics, today);
+  const { hidden, toggle, showAll } = useHiddenSubjects();
+  const encodingSubjects = subjectsIn(encoding);
+  const hiddenHere = encodingSubjects.filter((c) => hidden.includes(c));
+  const visibleEncoding = filterHidden(encoding, hiddenHere);
+  const hiddenTopics = encoding.length - visibleEncoding.length;
   const moreEncoding = topics.filter(isEncodingTopic).length - encoding.length;
   const counts = dueCounts(topics, today);
   const allTasks = openTasks(topics, today);
@@ -107,14 +116,39 @@ export function DnesTab({ topics, today, onOpenPredmety }: { topics: Topic[]; to
 
       <section className="area-encoding" id="ucim-nove">
         <h2 className="area-title">
-          Učím nové <span className="count">{encoding.length}</span>
+          Učím nové <span className="count">{visibleEncoding.length}</span>
+          {hiddenTopics > 0 && <span className="hidden-count">(+{hiddenTopics} skryto)</span>}
         </h2>
         <p className="area-hint">Neučená témata s deadline do {ENCODING_HORIZON_DAYS} dní</p>
+        {encodingSubjects.length > 0 ? (
+          <div className="subject-filter" role="group" aria-label="Předměty v Učím nové">
+            {encodingSubjects.map((code) => (
+              <label
+                key={code}
+                className={`subject-chip${hidden.includes(code) ? " subject-chip-off" : ""}`}
+                title={SUBJECTS.find((s) => s.code === code)?.name}
+              >
+                <input type="checkbox" checked={!hidden.includes(code)} onChange={() => toggle(code)} />
+                <span className={`badge badge-${code}`}>{code}</span>
+              </label>
+            ))}
+          </div>
+        ) : null}
+        {hiddenHere.length > 0 && (
+          <p className="hidden-note">
+            {skrytoPredmetu(hiddenHere.length).replace(/^./, (c) => c.toUpperCase())}
+            <button type="button" className="link-button" onClick={showAll}>
+              Zobrazit vše
+            </button>
+          </p>
+        )}
         {encoding.length === 0 ? (
           <p className="empty small">Nic k učení teď</p>
+        ) : visibleEncoding.length === 0 ? (
+          <p className="empty small">Všechny předměty jsou skryté</p>
         ) : (
           <ul className="topics">
-            {encoding.map((t) => (
+            {visibleEncoding.map((t) => (
               <TopicRow key={t.id} topic={t} today={today} />
             ))}
           </ul>
