@@ -10,6 +10,7 @@ import { extname, join, normalize, sep } from "node:path";
 import { API_PREFIX, createApiHandler } from "../src/server/notionApi";
 import { MILNIKY, TRENINKY } from "../src/notion/config";
 import { checkForUpdates } from "./update";
+import { navigate, openedAtLogin, startBackground } from "./background";
 
 const APP_TITLE = "ČZU Study Dashboard";
 const isDev = !app.isPackaged;
@@ -154,13 +155,16 @@ async function startServer(): Promise<{ server: Server; origin: string }> {
 
 let mainWindow: BrowserWindow | null = null;
 let origin = "";
+/** Fáze 9 A: closing the window only hides it; the app quits via the tray, Cmd+Q or an update. */
+let quitting = false;
 
 function isOurs(event: IpcMainInvokeEvent): boolean {
   return event.senderFrame?.url.startsWith(`${origin}/`) ?? false;
 }
 
-function createWindow() {
+function createWindow(show = true) {
   mainWindow = new BrowserWindow({
+    show,
     width: 440,
     height: 860,
     minWidth: 360,
@@ -199,8 +203,26 @@ function createWindow() {
   });
 
   void mainWindow.loadURL(`${origin}/`);
+  mainWindow.on("close", (event) => {
+    if (quitting || process.platform !== "darwin") return;
+    event.preventDefault();
+    mainWindow?.hide();
+  });
   mainWindow.on("closed", () => (mainWindow = null));
+  return mainWindow;
 }
+
+/** Bring the window back (or create it) and focus it. */
+function showWindow(): BrowserWindow {
+  const win = mainWindow ?? createWindow();
+  if (win.isMinimized()) win.restore();
+  win.show();
+  win.focus();
+  app.focus({ steal: true });
+  return win;
+}
+
+const backgroundDeps = { origin: () => origin, showWindow, isOurs, isDev };
 
 function buildMenu() {
   const template: Electron.MenuItemConstructorOptions[] = [
@@ -209,6 +231,7 @@ function buildMenu() {
       submenu: [
         { role: "about" },
         { label: "Zkontrolovat aktualizace…", click: () => void checkForUpdates(mainWindow, false) },
+        { label: "Nastavení…", accelerator: "CmdOrCtrl+,", click: () => navigate(backgroundDeps, "nastaveni") },
         { type: "separator" },
         {
           label: "Změnit Notion token…",
@@ -264,12 +287,17 @@ app.whenReady().then(async () => {
     return;
   }
   buildMenu();
-  createWindow();
+  // Started at login: stay in the menu bar, the window opens from the tray or the Dock.
+  createWindow(!openedAtLogin());
+  startBackground(backgroundDeps);
   // Quiet check on launch; only speaks up when a newer release exists.
   if (!isDev) setTimeout(() => void checkForUpdates(mainWindow, true), 5000);
-  app.on("activate", () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow();
-  });
+  app.on("activate", () => void showWindow());
+});
+
+// Cmd+Q, Ukončit in the tray and the updater's app.quit() all pass here, so the window really closes.
+app.on("before-quit", () => {
+  quitting = true;
 });
 
 app.on("window-all-closed", () => {

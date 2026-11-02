@@ -327,6 +327,22 @@ The draft is created first on purpose: when electron-builder creates the release
 
 Or locally on the Mac: `GH_TOKEN=<token with repo access> npm run electron:publish`, then publish the draft on GitHub. Never commit the token.
 
+## Notifikace a běh na pozadí (Fáze 9 A)
+
+The Mac app keeps running in the menu bar (book icon): closing the window only hides it. The tray menu has **Otevřít**, **Dnes: X témat**, **Nastavení…** and **Ukončit**; Cmd+Q also quits. Updates still quit the app normally (`before-quit`).
+
+**Nastavení** (tab in the app, or Cmd+,) is stored in `userData/settings.json` (`~/Library/Application Support/CZU Study Dashboard/settings.json`):
+
+| Setting | Default |
+|---|---|
+| Spouštět po přihlášení (`app.setLoginItemSettings`) | on (started at login the app stays in the menu bar, no window) |
+| Ranní souhrn | on, 7:30: „Dnes 3 témata, 1 po termínu“ (`dueCounts`) |
+| Večerní připomínka | on, 20:00: „Zbývá 2: Logaritmy, Atomy“ or „Dnes hotovo“ |
+
+How it decides (`src/lib/notify.ts`, tested): a timer checks every minute and right after wake-up (`powerMonitor` resume). Each reminder goes out once a day (`userData/notify-state.json` remembers the date). A missed morning summary is sent after wake-up only until 12:00; the evening one until midnight; nothing is sent for the day before. The main process reads `/api/topics` from the app's own local server (same Notion client as the window); when Notion is unreachable it uses the last good copy in `userData/notify-cache.json` (Termín recomputed for today). Clicking a notification opens the window on Dnes.
+
+macOS asks for permission with the first notification (**Vyzkoušet notifikaci** in Nastavení triggers it). If nothing shows up: System Settings › Notifications › CZU Study Dashboard. Notifications are reliable only in the packaged app; its bundle id is `build.appId` (`cz.honza.czu-study-dashboard`) and must never change, or the permission and the in-place updates break. In `electron:dev` notifications show as Electron and the login item is not set.
+
 ## Out of scope
 
 Milestone editing in the app, parsing the Termíny page, Moodle/UIS/Drive scraping, snooze or skip, creating or deleting pages other than Tréninky rows, editing Fáze checklists inside topic pages, suggesting a method or changing gap lengths from skóre, Google Calendar, Quizlet/Anki sync, UIS/Moodle, auth and Vercel deploy.
