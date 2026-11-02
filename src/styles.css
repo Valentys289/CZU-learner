@@ -216,6 +216,7 @@ button { font: inherit; color: inherit; }
 .sub-title { font-size: 0.8rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; margin: 12px 0 8px; }
 
 .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; padding: 0 12px 12px; }
+.stats-4 { grid-template-columns: repeat(4, 1fr); }
 .stat {
   background: var(--chip);
   border-radius: 10px;

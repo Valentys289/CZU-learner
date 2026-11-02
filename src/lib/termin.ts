@@ -1,4 +1,4 @@
-import type { DueState, Hotovo, Topic } from "../types";
+import type { DueState, Hotovo, Topic, TopicType } from "../types";
 
 /** Interval to the next retrieval, keyed by the last finished step. */
 const NEXT_INTERVAL: Record<Exclude<Hotovo, "Neučeno" | "měsíc">, { days?: number; months?: number }> = {
@@ -78,7 +78,13 @@ export function computeDueState(topic: TerminInput, termin: string | null, today
   return "upcoming";
 }
 
-export function withTermin<T extends TerminInput>(topic: T, today: string): T & Pick<Topic, "termin" | "dueState"> {
+/**
+ * Termín + dueState. A Fáze 9 B úkol has no Termín and is never in the retrieval
+ * queue: dueState is "done" once Hotovo = měsíc, otherwise "none" (its Deadline
+ * is handled by taskDueState in phase.ts).
+ */
+export function withTermin<T extends TerminInput & { typ?: TopicType }>(topic: T, today: string): T & Pick<Topic, "termin" | "dueState"> {
+  if (topic.typ === "Úkol") return { ...topic, termin: null, dueState: topic.hotovo === "měsíc" ? "done" : "none" };
   const termin = computeTermin(topic);
   return { ...topic, termin, dueState: computeDueState(topic, termin, today) };
 }
@@ -88,9 +94,9 @@ export function isNeuceno(topic: Pick<Topic, "hotovo">): boolean {
 }
 
 /** Dnes list: Termín <= today. Overdue first (oldest Termín), then due today. */
-export function dnesList<T extends Pick<Topic, "termin" | "dueState" | "subject" | "poradi" | "title">>(topics: T[]): T[] {
+export function dnesList<T extends Pick<Topic, "termin" | "dueState" | "subject" | "poradi" | "title"> & { typ?: TopicType }>(topics: T[]): T[] {
   return topics
-    .filter((t) => t.dueState === "overdue" || t.dueState === "today")
+    .filter((t) => t.typ !== "Úkol" && (t.dueState === "overdue" || t.dueState === "today"))
     .sort(
       (a, b) =>
         (a.termin ?? "").localeCompare(b.termin ?? "") ||

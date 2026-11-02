@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { afterHotovoClick, afterNaucenoClick, applyAction, canMarkHotovo, canMarkNauceno, nextHotovo } from "./hotovo";
+import { afterHotovoClick, afterNaucenoClick, afterTaskDoneClick, applyAction, buildUndoSnapshot, canMarkHotovo, canMarkNauceno, canMarkTaskDone, nextHotovo } from "./hotovo";
 import type { Hotovo } from "../types";
 
 const TODAY = "2026-10-26";
@@ -91,5 +91,32 @@ describe("which button a topic gets", () => {
     const t = { hotovo: "měsíc" as const, nauceno: "2026-09-01", posledni: "2026-10-01" };
     expect(canMarkHotovo(t)).toBe(false);
     expect(canMarkNauceno(t)).toBe(false);
+  });
+});
+
+describe("úkol Hotovo (Fáze 9 B)", () => {
+  const task = { typ: "Úkol" as const, hotovo: null, nauceno: null, posledni: null };
+
+  it("writes only Hotovo = měsíc and Stav = Stable (no Poslední, no Naučeno)", () => {
+    expect(afterTaskDoneClick()).toEqual({ patch: { hotovo: "měsíc", stav: "Stable" }, termin: null });
+    expect(applyAction("ukol", task, TODAY)?.patch).toEqual({ hotovo: "měsíc", stav: "Stable" });
+  });
+
+  it("only on an open úkol; Hotovo / Naučeno dnes never on an úkol", () => {
+    expect(canMarkTaskDone(task)).toBe(true);
+    expect(canMarkTaskDone({ ...task, hotovo: "měsíc" })).toBe(false);
+    expect(canMarkTaskDone({ hotovo: null, nauceno: null, posledni: null })).toBe(false);
+    expect(canMarkHotovo({ ...task, hotovo: "večer", nauceno: TODAY })).toBe(false);
+    expect(canMarkNauceno(task)).toBe(false);
+    expect(applyAction("ukol", { ...task, hotovo: "měsíc" }, TODAY)).toBeNull();
+    expect(applyAction("ukol", { typ: "Téma", hotovo: null, nauceno: null, posledni: null }, TODAY)).toBeNull();
+    expect(applyAction("hotovo", { ...task, hotovo: "večer", nauceno: TODAY }, TODAY)).toBeNull();
+    expect(applyAction("nauceno", task, TODAY)).toBeNull();
+  });
+
+  it("undo snapshot holds just Hotovo and Stav", () => {
+    const snap = buildUndoSnapshot({ id: "u1", hotovo: null, posledni: null, nauceno: null, stav: "Priming" }, afterTaskDoneClick().patch, "", 0);
+    expect(snap.previous).toEqual({ hotovo: null, stav: "Priming" });
+    expect(snap.written).toEqual({ hotovo: "měsíc", stav: "Stable" });
   });
 });

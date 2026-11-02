@@ -2,8 +2,9 @@
 import { DEFAULT_TIME_ZONE, MILNIKY, MILNIKY_PROP, PROP, SUBJECTS, TRENINKY, TRENINKY_PROP, type SubjectConfig } from "./config";
 import type { MilnikyResponse, MilnikyRow } from "../timeline/types";
 import { toDateOnly, todayIn, withTermin } from "../lib/termin";
+import { isTask } from "../lib/phase";
 import { applyAction, buildUndoSnapshot, type TopicAction, type TopicPatch, type TopicWriteProps } from "../lib/hotovo";
-import type { Hotovo, SubjectError, Topic, TopicsResponse } from "../types";
+import type { Hotovo, SubjectError, Topic, TopicsResponse, TopicType } from "../types";
 import {
   buildSessionRow,
   isMethod,
@@ -210,6 +211,11 @@ export async function fetchMilniky(token: string, databaseId: string | null): Pr
   }
 }
 
+/** Fáze 9 B: only an explicit "Úkol" makes a task; a missing Typ property or empty select = Téma. */
+export function readTopicType(page: NotionPage): TopicType {
+  return readSelect(page, PROP.typ) === "Úkol" ? "Úkol" : "Téma";
+}
+
 export function pageToTopic(page: NotionPage, subject: SubjectConfig, today: string): Topic {
   const hotovoRaw = readSelect(page, PROP.hotovo);
   const hotovo = HOTOVO_VALUES.includes(hotovoRaw as Hotovo) ? (hotovoRaw as Hotovo) : null;
@@ -219,6 +225,7 @@ export function pageToTopic(page: NotionPage, subject: SubjectConfig, today: str
       url: page.url,
       subject: subject.code,
       title: readTitle(page) || "(bez názvu)",
+      typ: readTopicType(page),
       hotovo,
       nauceno: readDate(page, PROP.nauceno),
       posledni: readDate(page, PROP.posledni),
@@ -365,7 +372,16 @@ export async function updateTopic(
   const before = pageToTopic(page, subject, today);
 
   const result = applyAction(action, before, today);
-  if (!result) throw new NotionError("Tohle téma už nejde posunout, obnov seznam", 409);
+  if (!result) {
+    throw new NotionError(
+      action === "ukol"
+        ? "Úkol už je hotový nebo v Notionu není Typ Úkol, obnov seznam"
+        : isTask(before)
+          ? "Tohle je úkol, ne téma k učení, obnov seznam"
+          : "Tohle téma už nejde posunout, obnov seznam",
+      409,
+    );
+  }
 
   const updated = await notionRequest<NotionPage>(token, LEGACY_VERSION, "PATCH", `/pages/${pageId}`, {
     properties: patchToProperties(result.patch),
@@ -423,6 +439,7 @@ export async function logSession(
 
   const { page, subject } = await readTopicPage(token, pageId);
   const before = pageToTopic(page, subject, today);
+  if (isTask(before)) throw new NotionError("Úkol nemá trénink, obnov seznam", 409);
   const result = sessionPatch(before, input);
   if (input.advanceGap && !result) throw new NotionError("Tohle téma už nejde posunout, vypni Posunout gap", 409);
 

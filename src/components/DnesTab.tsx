@@ -1,14 +1,19 @@
 import type { Topic } from "../types";
 import { dnesList } from "../lib/termin";
-import { dueCounts, ENCODING_HORIZON_DAYS, encodingDueSoon, isEncodingTopic } from "../lib/phase";
-import { pluralNovychTemat } from "../lib/format";
+import { addDays } from "../lib/termin";
+import { dueCounts, ENCODING_HORIZON_DAYS, encodingDueSoon, isEncodingTopic, openTasks } from "../lib/phase";
+import { pluralNovychTemat, pluralUkolu } from "../lib/format";
 import { TopicRow } from "./TopicRow";
+import { TaskRow } from "./TaskRow";
 
 /**
  * Dnes: due retrieval (Po termínu, Dnes) and, separately, encoding work with a
  * Deadline in the next ENCODING_HORIZON_DAYS days (Učím nové). Other Neučeno
  * topics stay on Předměty. Encoding topics past (or at) their Deadline count into Po termínu
  * (or Dnes) but stay listed under Učím nové, where Naučeno dnes is the action.
+ * Fáze 9 B: open úkoly (Typ = Úkol) get their own Úkoly section above Učím nové
+ * (Deadline within the same horizon, or no Deadline); overdue / today ones count
+ * into Po termínu / Dnes the same way. The section is hidden while there are no úkoly.
  */
 export function DnesTab({ topics, today, onOpenPredmety }: { topics: Topic[]; today: string; onOpenPredmety?: () => void }) {
   const list = dnesList(topics); // retrieval only, unchanged
@@ -17,7 +22,12 @@ export function DnesTab({ topics, today, onOpenPredmety }: { topics: Topic[]; to
   const encoding = encodingDueSoon(topics, today);
   const moreEncoding = topics.filter(isEncodingTopic).length - encoding.length;
   const counts = dueCounts(topics, today);
+  const allTasks = openTasks(topics, today);
+  const until = addDays(today, ENCODING_HORIZON_DAYS);
+  const tasks = allTasks.filter((t) => t.deadline === null || t.deadline <= until);
+  const moreTasks = allTasks.length - tasks.length;
   const toEncoding = () => document.getElementById("ucim-nove")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  const toTasks = () => document.getElementById("ukoly")?.scrollIntoView({ behavior: "smooth", block: "start" });
 
   return (
     <>
@@ -40,6 +50,11 @@ export function DnesTab({ topics, today, onOpenPredmety }: { topics: Topic[]; to
               + {pluralNovychTemat(counts.encodingOverdue)} po termínu v Učím nové
             </button>
           )}
+          {counts.taskOverdue > 0 && (
+            <button type="button" className="link-button" onClick={toTasks}>
+              + {pluralUkolu(counts.taskOverdue)} po termínu v Úkolech
+            </button>
+          )}
         </section>
       )}
       {counts.today > 0 && (
@@ -57,6 +72,34 @@ export function DnesTab({ topics, today, onOpenPredmety }: { topics: Topic[]; to
           {counts.encodingToday > 0 && (
             <button type="button" className="link-button" onClick={toEncoding}>
               + {pluralNovychTemat(counts.encodingToday)} s deadline dnes v Učím nové
+            </button>
+          )}
+          {counts.taskToday > 0 && (
+            <button type="button" className="link-button" onClick={toTasks}>
+              + {pluralUkolu(counts.taskToday)} s deadline dnes v Úkolech
+            </button>
+          )}
+        </section>
+      )}
+
+      {allTasks.length > 0 && (
+        <section className="area-encoding" id="ukoly">
+          <h2 className="area-title">
+            Úkoly <span className="count">{tasks.length}</span>
+          </h2>
+          <p className="area-hint">Úkoly s deadline do {ENCODING_HORIZON_DAYS} dní nebo bez deadline</p>
+          {tasks.length === 0 ? (
+            <p className="empty small">Teď žádný úkol</p>
+          ) : (
+            <ul className="topics">
+              {tasks.map((t) => (
+                <TaskRow key={t.id} task={t} today={today} />
+              ))}
+            </ul>
+          )}
+          {moreTasks > 0 && (
+            <button type="button" className="link-button" onClick={onOpenPredmety}>
+              Další úkoly ({moreTasks}) v Předmětech
             </button>
           )}
         </section>

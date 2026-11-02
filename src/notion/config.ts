@@ -76,6 +76,8 @@ export const PROP = {
   stav: "Stav",
   poradi: "Pořadí",
   odkaz: "Odkaz",
+  /** Fáze 9 B: select Téma / Úkol. Added in Notion by DEKAN / Honza; the app only reads it. */
+  typ: "Typ",
 } as const;
 
 /**

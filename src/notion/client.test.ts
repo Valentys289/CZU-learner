@@ -44,6 +44,7 @@ describe("pageToTopic", () => {
       url: "https://www.notion.so/abc",
       subject: "CH",
       title: "Redoxní reakce",
+      typ: "Téma",
       hotovo: "2 dny",
       nauceno: "2026-10-15",
       posledni: "2026-10-18",
@@ -63,6 +64,37 @@ describe("pageToTopic", () => {
       "2026-10-26",
     );
     expect(t).toMatchObject({ title: "(bez názvu)", hotovo: null, termin: null, dueState: "none" });
+  });
+});
+
+describe("pageToTopic: Typ (Fáze 9 B)", () => {
+  const withTyp = (typ: { type: string; [key: string]: unknown }) => ({ ...page, properties: { ...page.properties, Typ: typ } });
+
+  it("missing Typ property = Téma, nothing else changes", () => {
+    expect(pageToTopic(page, chemie, "2026-10-26")).toMatchObject({ typ: "Téma", termin: "2026-10-23", dueState: "overdue" });
+  });
+
+  it.each([
+    ["empty select", { type: "select", select: null }],
+    ["Téma", { type: "select", select: { name: "Téma" } }],
+    ["unknown option", { type: "select", select: { name: "Projekt" } }],
+    ["wrong property type", { type: "rich_text", rich_text: [{ plain_text: "Úkol" }] }],
+  ])("%s = Téma", (_name, typ) => {
+    expect(pageToTopic(withTyp(typ), chemie, "2026-10-26").typ).toBe("Téma");
+  });
+
+  it("Typ Úkol: no Termín, never due as retrieval", () => {
+    const t = pageToTopic(withTyp({ type: "select", select: { name: "Úkol" } }), chemie, "2026-10-26");
+    expect(t).toMatchObject({ typ: "Úkol", termin: null, dueState: "none" });
+  });
+
+  it("finished Úkol (Hotovo měsíc) is done", () => {
+    const t = pageToTopic(
+      { ...page, properties: { ...page.properties, Typ: { type: "select", select: { name: "Úkol" } }, Hotovo: { type: "select", select: { name: "měsíc" } } } },
+      chemie,
+      "2026-10-26",
+    );
+    expect(t).toMatchObject({ typ: "Úkol", termin: null, dueState: "done" });
   });
 });
 
@@ -161,6 +193,46 @@ describe("updateTopic", () => {
     expect(topic).toMatchObject({ hotovo: "5 dní", posledni: "2026-10-26", termin: "2026-11-07", dueState: "upcoming" });
     expect(previous).toEqual({ hotovo: "2 dny", posledni: "2026-10-18" });
     expect(written).toEqual({ hotovo: "5 dní", posledni: "2026-10-26" });
+  });
+
+  it("úkol Hotovo writes only Hotovo = měsíc and Stav = Stable, in one PATCH", async () => {
+    const task = {
+      ...inChemie,
+      properties: {
+        ...inChemie.properties,
+        Typ: { type: "select", select: { name: "Úkol" } },
+        Hotovo: { type: "select", select: null },
+        Stav: { type: "select", select: { name: "Priming" } },
+        Deadline: { type: "date", date: { start: "2026-10-20" } },
+      },
+    };
+    const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
+      if (init?.method !== "PATCH") return json(task);
+      return json({
+        ...task,
+        properties: { ...task.properties, Hotovo: { type: "select", select: { name: "měsíc" } }, Stav: { type: "select", select: { name: "Stable" } } },
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { topic, previous, written } = await updateTopic("tok", "abc", "ukol");
+
+    expect(JSON.parse(fetchMock.mock.calls[1][1]!.body as string)).toEqual({
+      properties: { Hotovo: { select: { name: "měsíc" } }, Stav: { select: { name: "Stable" } } },
+    });
+    expect(topic).toMatchObject({ typ: "Úkol", hotovo: "měsíc", stav: "Stable", termin: null, dueState: "done" });
+    expect(previous).toEqual({ hotovo: null, stav: "Priming" });
+    expect(written).toEqual({ hotovo: "měsíc", stav: "Stable" });
+  });
+
+  it("refuses the úkol Hotovo on a Téma, and Hotovo / Naučeno dnes on an úkol, without writing", async () => {
+    const task = { ...inChemie, properties: { ...inChemie.properties, Typ: { type: "select", select: { name: "Úkol" } }, Hotovo: { type: "select", select: null } } };
+    for (const [body, action] of [[inChemie, "ukol"], [task, "hotovo"], [task, "nauceno"]] as const) {
+      const fetchMock = vi.fn(async () => json(body));
+      vi.stubGlobal("fetch", fetchMock);
+      await expect(updateTopic("tok", "abc", action)).rejects.toMatchObject({ status: 409 });
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    }
   });
 
   it("refuses pages outside the Témata databases without writing", async () => {
