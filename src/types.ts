@@ -8,6 +8,13 @@ export type Hotovo =
   | "12 dní"
   | "měsíc";
 
+/**
+ * Fáze 9 B: Typ select on the Témata DBs. "Úkol" is a to-do (seminárka, odeslat ke
+ * schválení): no Termín, no retrieval, just a Deadline and Hotovo. Empty, missing
+ * property or any other value = "Téma".
+ */
+export type TopicType = "Téma" | "Úkol";
+
 export type DueState = "overdue" | "today" | "upcoming" | "none" | "done";
 
 export type Topic = {
@@ -15,6 +22,7 @@ export type Topic = {
   url: string;
   subject: SubjectCode;
   title: string;
+  typ: TopicType;
   hotovo: Hotovo | null;
   nauceno: string | null; // YYYY-MM-DD
   posledni: string | null;

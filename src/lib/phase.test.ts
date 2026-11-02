@@ -10,6 +10,11 @@ import {
   ENCODING_HORIZON_DAYS,
   isEncodingTopic,
   isRetrievalTopic,
+  isTask,
+  isTaskDone,
+  openTasks,
+  taskDueState,
+  taskOverdueDays,
 } from "./phase";
 import { pluralDny, pluralNovychTemat } from "./format";
 
@@ -43,6 +48,7 @@ describe("encodingDueSoon", () => {
         url: "",
         subject: "M",
         title,
+        typ: "Téma",
         hotovo: null,
         nauceno: null,
         posledni: null,
@@ -90,6 +96,7 @@ describe("Po termínu for encoding (Fáze 8)", () => {
         url: "",
         subject: "M",
         title,
+        typ: "Téma",
         hotovo: null,
         nauceno: null,
         posledni: null,
@@ -112,7 +119,7 @@ describe("Po termínu for encoding (Fáze 8)", () => {
     expect(encodingDueState(t, NOW)).toBe("overdue");
     expect(encodingOverdueDays(t, NOW)).toBe(1);
     expect(pluralDny(encodingOverdueDays(t, NOW))).toBe("1 den");
-    expect(dueCounts([t], NOW)).toEqual({ overdue: 1, today: 0, encodingOverdue: 1, encodingToday: 0 });
+    expect(dueCounts([t], NOW)).toEqual({ overdue: 1, today: 0, encodingOverdue: 1, encodingToday: 0, taskOverdue: 0, taskToday: 0 });
   });
 
   it("acceptance: Logaritmy, Deadline 30. 10., today 2. 11.: Po termínu (3 dny)", () => {
@@ -133,13 +140,13 @@ describe("Po termínu for encoding (Fáze 8)", () => {
     const t = topic("Dnes", NOW);
     expect(encodingDueState(t, NOW)).toBe("today");
     expect(encodingOverdueDays(t, NOW)).toBe(0);
-    expect(dueCounts([t], NOW)).toEqual({ overdue: 0, today: 1, encodingOverdue: 0, encodingToday: 1 });
+    expect(dueCounts([t], NOW)).toEqual({ overdue: 0, today: 1, encodingOverdue: 0, encodingToday: 1, taskOverdue: 0, taskToday: 0 });
   });
 
   it("future deadline or no deadline: not counted", () => {
     const list = [topic("Zítra", "2026-11-03"), topic("Bez", null)];
     expect(list.map((t) => encodingDueState(t, NOW))).toEqual(["upcoming", "none"]);
-    expect(dueCounts(list, NOW)).toEqual({ overdue: 0, today: 0, encodingOverdue: 0, encodingToday: 0 });
+    expect(dueCounts(list, NOW)).toEqual({ overdue: 0, today: 0, encodingOverdue: 0, encodingToday: 0, taskOverdue: 0, taskToday: 0 });
   });
 
   it("retrieval topics ignore Deadline: counts equal dnesList", () => {
@@ -156,6 +163,8 @@ describe("Po termínu for encoding (Fáze 8)", () => {
       today: due.filter((t) => t.dueState === "today").length,
       encodingOverdue: 0,
       encodingToday: 0,
+      taskOverdue: 0,
+      taskToday: 0,
     });
     expect(dueCounts(list, NOW)).toMatchObject({ overdue: 1, today: 1 });
   });
@@ -170,7 +179,7 @@ describe("Po termínu for encoding (Fáze 8)", () => {
       topic("Nejstarší", "2026-10-20"),
       topic("Bez deadline", null),
     ];
-    expect(dueCounts(list, NOW)).toEqual({ overdue: 3, today: 2, encodingOverdue: 2, encodingToday: 1 });
+    expect(dueCounts(list, NOW)).toEqual({ overdue: 3, today: 2, encodingOverdue: 2, encodingToday: 1, taskOverdue: 0, taskToday: 0 });
     // dnesList unchanged: retrieval only.
     expect(dnesList(list).map((t) => t.title)).toEqual(["R po termínu", "R dnes"]);
     expect(encodingDueSoon(list, NOW).map((t) => t.title)).toEqual(["Nejstarší", "Logaritmy", "Dnes", "Za týden"]);
@@ -182,10 +191,106 @@ describe("Po termínu for encoding (Fáze 8)", () => {
     const learned = topic("Logaritmy", "2026-10-30", { hotovo: "Neučeno", nauceno: NOW, stav: "Encoding" });
     expect(encodingDueState(learned, NOW)).toBe("none");
     // It now counts once, as retrieval due today (evening review).
-    expect(dueCounts([learned], NOW)).toEqual({ overdue: 0, today: 1, encodingOverdue: 0, encodingToday: 0 });
+    expect(dueCounts([learned], NOW)).toEqual({ overdue: 0, today: 1, encodingOverdue: 0, encodingToday: 0, taskOverdue: 0, taskToday: 0 });
   });
 
   it("pluralNovychTemat", () => {
     expect([1, 2, 4, 5].map(pluralNovychTemat)).toEqual(["1 nové téma", "2 nová témata", "4 nová témata", "5 nových témat"]);
+  });
+});
+
+describe("úkoly (Fáze 9 B)", () => {
+  const NOW = "2026-11-02";
+  let n = 0;
+  const item = (title: string, extra: Partial<Topic> = {}): Topic =>
+    withTermin(
+      {
+        id: `u${++n}`,
+        url: "",
+        subject: "TD",
+        title,
+        typ: "Téma",
+        hotovo: null,
+        nauceno: null,
+        posledni: null,
+        deadline: null,
+        stav: "Priming",
+        poradi: null,
+        odkaz: null,
+        ...extra,
+      },
+      NOW,
+    );
+  const task = (title: string, deadline: string | null, extra: Partial<Topic> = {}) => item(title, { typ: "Úkol", deadline, ...extra });
+
+  it("isTask: only Typ Úkol; missing Typ = Téma", () => {
+    expect(isTask({ typ: "Úkol" })).toBe(true);
+    expect(isTask({ typ: "Téma" })).toBe(false);
+    expect(isTask({})).toBe(false);
+  });
+
+  it("an úkol is neither encoding nor retrieval, whatever Hotovo / Naučeno say", () => {
+    for (const extra of [{}, { hotovo: "večer" as const, nauceno: "2026-10-28" }, { hotovo: "Neučeno" as const, nauceno: NOW }]) {
+      const t = task("Seminárka", NOW, extra);
+      expect(isEncodingTopic(t)).toBe(false);
+      expect(isRetrievalTopic(t)).toBe(false);
+      expect(t.termin).toBeNull();
+    }
+  });
+
+  it("dueCounts: overdue / today / future by Deadline, each once", () => {
+    const list = [task("Včera", "2026-11-01"), task("Dnes", NOW), task("Za týden", "2026-11-09"), task("Bez deadline", null)];
+    expect(list.map((t) => taskDueState(t, NOW))).toEqual(["overdue", "today", "upcoming", "none"]);
+    expect(taskOverdueDays(list[0], NOW)).toBe(1);
+    expect(dueCounts(list, NOW)).toEqual({ overdue: 1, today: 1, encodingOverdue: 0, encodingToday: 0, taskOverdue: 1, taskToday: 1 });
+  });
+
+  it("an úkol with Hotovo / Naučeno that would make a Termín due is still counted only by its Deadline", () => {
+    // As a Téma this would be retrieval with Termín 2026-10-30 (overdue).
+    const t = task("Odeslat ke schválení", "2026-11-09", { hotovo: "večer", nauceno: "2026-10-28" });
+    expect(dueCounts([t], NOW)).toEqual({ overdue: 0, today: 0, encodingOverdue: 0, encodingToday: 0, taskOverdue: 0, taskToday: 0 });
+  });
+
+  it("a finished úkol (Hotovo měsíc) is not counted and not listed", () => {
+    const t = task("Hotový", "2026-10-20", { hotovo: "měsíc", stav: "Stable" });
+    expect(isTaskDone(t)).toBe(true);
+    expect(taskDueState(t, NOW)).toBe("done");
+    expect(t.dueState).toBe("done");
+    expect(dueCounts([t], NOW).overdue).toBe(0);
+    expect(openTasks([t], NOW)).toEqual([]);
+  });
+
+  it("an úkol is never in dnesList or encodingDueSoon", () => {
+    const list = [task("A", "2026-11-01"), task("B", NOW), task("C", null, { hotovo: "večer", nauceno: "2026-10-28" })];
+    expect(dnesList(list)).toEqual([]);
+    expect(encodingDueSoon(list, NOW)).toEqual([]);
+  });
+
+  it("openTasks: overdue first, then today, upcoming by Deadline, no Deadline last; done left out", () => {
+    const list = [
+      task("Bez", null),
+      task("Pozdě", "2026-11-20"),
+      task("Dnes", NOW),
+      task("Hotový", "2026-10-01", { hotovo: "měsíc" }),
+      task("Včera", "2026-11-01"),
+      item("Téma", { deadline: "2026-11-01" }),
+    ];
+    expect(openTasks(list, NOW).map((t) => t.title)).toEqual(["Včera", "Dnes", "Pozdě", "Bez"]);
+  });
+
+  it("retrieval and encoding counts are unchanged by úkoly next to them", () => {
+    const temata = [
+      item("Retrieval po termínu", { hotovo: "večer", nauceno: "2026-10-28", stav: "Retrieval" }),
+      item("Retrieval dnes", { hotovo: "Neučeno", nauceno: NOW, stav: "Encoding" }),
+      item("Encoding po termínu", { deadline: "2026-10-30" }),
+      item("Encoding dnes", { deadline: NOW }),
+    ];
+    const before = dueCounts(temata, NOW);
+    expect(before).toEqual({ overdue: 2, today: 2, encodingOverdue: 1, encodingToday: 1, taskOverdue: 0, taskToday: 0 });
+    const after = dueCounts([...temata, task("U1", "2026-10-31"), task("U2", NOW), task("U3", "2026-12-01")], NOW);
+    expect(after).toEqual({ overdue: 3, today: 3, encodingOverdue: 1, encodingToday: 1, taskOverdue: 1, taskToday: 1 });
+    expect(after.overdue - after.taskOverdue).toBe(before.overdue);
+    expect(after.today - after.taskToday).toBe(before.today);
+    expect(dnesList([...temata, task("U1", "2026-10-31")]).map((t) => t.title)).toEqual(dnesList(temata).map((t) => t.title));
   });
 });

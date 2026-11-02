@@ -23,6 +23,7 @@ function topic(subject: SubjectCode, title: string, hotovo: Hotovo | null = null
     url: "https://www.notion.so/x",
     subject,
     title,
+    typ: "Téma",
     hotovo,
     nauceno,
     posledni: null,

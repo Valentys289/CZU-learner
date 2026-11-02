@@ -35,7 +35,7 @@ const isEmpty = (o: object) => Object.keys(o).length === 0;
 
 const TOKEN_CODES = ["no-token", "bad-token"];
 
-const ACTION_DONE: Record<TopicAction, string> = { hotovo: "Hotovo uloženo", nauceno: "Naučeno dnes" };
+const ACTION_DONE: Record<TopicAction, string> = { hotovo: "Hotovo uloženo", nauceno: "Naučeno dnes", ukol: "Úkol hotový" };
 
 function removeFrom(set: ReadonlySet<string>, id: string): ReadonlySet<string> {
   const next = new Set(set);
