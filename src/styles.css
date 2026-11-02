@@ -535,3 +535,21 @@ label.settings-row { justify-content: flex-start; cursor: pointer; }
 .settings-bad { color: var(--bad); }
 .settings-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .settings-status { color: var(--muted); font-size: 0.85rem; }
+/* Fáze 9 C: hide subjects in Učím nové */
+.hidden-count { color: var(--muted); font-size: 0.82rem; font-weight: 400; }
+.subject-filter { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 8px; }
+.subject-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: var(--chip);
+  cursor: pointer;
+  min-height: 32px;
+  user-select: none;
+}
+.subject-chip input { margin: 0; accent-color: var(--accent); }
+.subject-chip-off .badge { opacity: 0.35; }
+.hidden-note { display: flex; align-items: center; gap: 10px; margin: 0 0 8px; color: var(--muted); font-size: 0.85rem; }
+.hidden-note .link-button { margin-top: 0; }

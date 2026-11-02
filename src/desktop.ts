@@ -26,6 +26,12 @@ export type DesktopBridge = {
   reportDueCount: (n: number) => void;
   /** Subscribe to navigation from main; returns the unsubscribe function. */
   onNavigate: (cb: (section: DesktopSection) => void) => () => void;
+  /**
+   * Small UI preferences in userData/prefs.json. The app runs on a random localhost
+   * port, so localStorage (per origin) does not survive a restart in the desktop app.
+   */
+  prefGet: (key: string) => Promise<string | null>;
+  prefSet: (key: string, value: string) => Promise<void>;
 };
 
 declare global {
