@@ -1,4 +1,4 @@
-import type { Topic } from "../types";
+import type { Topic, TopicType } from "../types";
 import { addDays, daysBetween, dnesList, isNeuceno } from "./termin";
 
 /**
@@ -7,7 +7,22 @@ import { addDays, daysBetween, dnesList, isNeuceno } from "./termin";
  */
 export const STAV_OPTIONS = ["Priming", "Encoding", "Retrieval", "Stable"] as const;
 
-type PhaseFields = Pick<Topic, "stav" | "hotovo" | "nauceno">;
+/** `typ` is optional so older callers (and data without the Typ property) count as Téma. */
+type PhaseFields = Pick<Topic, "stav" | "hotovo" | "nauceno"> & { typ?: TopicType };
+
+/**
+ * Fáze 9 B: an úkol (Typ = Úkol in Notion) is a to-do with a Deadline, not a topic
+ * to learn: never encoding, never retrieval, no Termín, Trénink or Fáze checklist.
+ * A missing or empty Typ means Téma.
+ */
+export function isTask(t: { typ?: TopicType }): boolean {
+  return t.typ === "Úkol";
+}
+
+/** A finished úkol: Hotovo = měsíc (the app's "Hotovo" on a task writes that, plus Stav Stable). */
+export function isTaskDone(t: { typ?: TopicType } & Pick<Topic, "hotovo">): boolean {
+  return isTask(t) && t.hotovo === "měsíc";
+}
 
 /**
  * Encoding (učím nové): the true Neučeno queue, i.e. Hotovo Neučeno or empty and
@@ -15,7 +30,7 @@ type PhaseFields = Pick<Topic, "stav" | "hotovo" | "nauceno">;
  * Naučeno dnes is the action that finishes encoding.
  */
 export function isEncodingTopic(t: PhaseFields): boolean {
-  return isNeuceno(t) && !t.nauceno;
+  return !isTask(t) && isNeuceno(t) && !t.nauceno;
 }
 
 /**
@@ -24,7 +39,7 @@ export function isEncodingTopic(t: PhaseFields): boolean {
  * has Naučeno or a Hotovo step), the Hotovo queue wins: the topic is retrieval.
  */
 export function isRetrievalTopic(t: PhaseFields): boolean {
-  return !isEncodingTopic(t);
+  return !isTask(t) && !isEncodingTopic(t);
 }
 
 /** How far ahead Dnes looks for encoding work: Deadline within this many days (or already past). */
@@ -49,21 +64,42 @@ export function encodingOverdueDays(t: PhaseFields & Pick<Topic, "deadline">, to
   return encodingDueState(t, today) === "overdue" && t.deadline ? daysBetween(t.deadline, today) : 0;
 }
 
+/** Deadline state of an úkol: "done" once finished, "none" for témata or no Deadline. */
+export type TaskDueState = "overdue" | "today" | "upcoming" | "none" | "done";
+
+export function taskDueState(t: { typ?: TopicType } & Pick<Topic, "hotovo" | "deadline">, today: string): TaskDueState {
+  if (!isTask(t)) return "none";
+  if (isTaskDone(t)) return "done";
+  if (!t.deadline) return "none";
+  if (t.deadline < today) return "overdue";
+  if (t.deadline === today) return "today";
+  return "upcoming";
+}
+
+/** Whole days past an open úkol's Deadline; 0 when not overdue. */
+export function taskOverdueDays(t: { typ?: TopicType } & Pick<Topic, "hotovo" | "deadline">, today: string): number {
+  return taskDueState(t, today) === "overdue" && t.deadline ? daysBetween(t.deadline, today) : 0;
+}
+
 export interface DueCounts {
-  /** Retrieval with Termín < today plus encoding with Deadline < today. */
+  /** Retrieval with Termín < today, encoding with Deadline < today, open úkoly with Deadline < today. */
   overdue: number;
-  /** Retrieval with Termín === today plus encoding with Deadline === today. */
+  /** Same three, due today. */
   today: number;
   /** The encoding part of `overdue` (shown in Učím nové, counted in Po termínu). */
   encodingOverdue: number;
   /** The encoding part of `today`. */
   encodingToday: number;
+  /** Fáze 9 B: the úkol part of `overdue` (shown in Úkoly). */
+  taskOverdue: number;
+  /** The úkol part of `today`. */
+  taskToday: number;
 }
 
 /**
  * Po termínu / Dnes counts. Retrieval comes from dnesList (unchanged), encoding from
- * encodingDueState. The two sets are disjoint (encoding topics have dueState "none"),
- * so each topic counts at most once.
+ * encodingDueState, úkoly from taskDueState (open ones only). The three sets are
+ * disjoint (encoding topics and úkoly have dueState "none"), so each counts once.
  */
 export function dueCounts<T extends PhaseFields & Pick<Topic, "deadline" | "termin" | "dueState" | "subject" | "poradi" | "title">>(
   topics: T[],
@@ -74,14 +110,29 @@ export function dueCounts<T extends PhaseFields & Pick<Topic, "deadline" | "term
   const rToday = retrieval.length - rOverdue;
   let encodingOverdue = 0;
   let encodingToday = 0;
+  let taskOverdue = 0;
+  let taskToday = 0;
   for (const t of topics) {
+    if (isTask(t)) {
+      const s = taskDueState(t, today);
+      if (s === "overdue") taskOverdue++;
+      else if (s === "today") taskToday++;
+      continue;
+    }
     // Guard: never count a topic dnesList already counted.
     if (t.dueState === "overdue" || t.dueState === "today") continue;
     const s = encodingDueState(t, today);
     if (s === "overdue") encodingOverdue++;
     else if (s === "today") encodingToday++;
   }
-  return { overdue: rOverdue + encodingOverdue, today: rToday + encodingToday, encodingOverdue, encodingToday };
+  return {
+    overdue: rOverdue + encodingOverdue + taskOverdue,
+    today: rToday + encodingToday + taskToday,
+    encodingOverdue,
+    encodingToday,
+    taskOverdue,
+    taskToday,
+  };
 }
 
 function byDeadline(a: string | null, b: string | null): number {
@@ -123,4 +174,26 @@ export function encodingDueSoon<T extends PhaseFields & Pick<Topic, "deadline" |
   return topics
     .filter((t) => isEncodingTopic(t) && t.deadline !== null && t.deadline <= until)
     .sort((a, b) => compareEncoding(a, b, today));
+}
+
+const TASK_RANK: Record<TaskDueState, number> = { overdue: 0, today: 1, upcoming: 2, none: 3, done: 4 };
+
+/**
+ * Úkoly section (Dnes and Předměty): open úkoly only, overdue Deadline first (oldest
+ * on top), then today, then upcoming by Deadline, úkoly without a Deadline last.
+ */
+export function openTasks<T extends { typ?: TopicType } & Pick<Topic, "hotovo" | "deadline" | "poradi" | "title" | "subject">>(
+  topics: T[],
+  today: string,
+): T[] {
+  return topics
+    .filter((t) => isTask(t) && !isTaskDone(t))
+    .sort(
+      (a, b) =>
+        TASK_RANK[taskDueState(a, today)] - TASK_RANK[taskDueState(b, today)] ||
+        byDeadline(a.deadline, b.deadline) ||
+        (a.poradi ?? Infinity) - (b.poradi ?? Infinity) ||
+        a.subject.localeCompare(b.subject) ||
+        a.title.localeCompare(b.title, "cs"),
+    );
 }

@@ -48,6 +48,7 @@ function readJson(req: IncomingMessage): Promise<unknown> {
  *   GET  /api/topics                      all topics
  *   POST /api/topics/{pageId}/hotovo      Fáze 2 write
  *   POST /api/topics/{pageId}/nauceno     Fáze 2 write
+ *   POST /api/topics/{pageId}/ukol        Fáze 9 B: úkol Hotovo (Hotovo = měsíc + Stav = Stable)
  *   POST /api/topics/{pageId}/session     Fáze 6: { method, score, date?, advanceGap } → Tréninky row (+ Hotovo)
  *   GET  /api/topics/{pageId}/sessions    Fáze 6: last 10 Tréninky rows of the topic
  *   POST /api/topics/{pageId}/undo        { previous?, written?, sessionId? }: revert the last write
@@ -71,7 +72,7 @@ export function createApiHandler(
     res.setHeader("Content-Type", "application/json; charset=utf-8");
     res.setHeader("Cache-Control", "no-store");
     const path = subpath.split("?")[0];
-    const write = /^\/([0-9a-fA-F-]{32,36})\/(hotovo|nauceno|undo|session)$/.exec(path);
+    const write = /^\/([0-9a-fA-F-]{32,36})\/(hotovo|nauceno|ukol|undo|session)$/.exec(path);
     const history = /^\/([0-9a-fA-F-]{32,36})\/sessions$/.exec(path);
     const checklist = /^\/([0-9a-fA-F-]{32,36})\/checklist$/.exec(path);
     const tick = /^\/([0-9a-fA-F-]{32,36})\/checklist\/([0-9a-fA-F-]{32,36})$/.exec(path);

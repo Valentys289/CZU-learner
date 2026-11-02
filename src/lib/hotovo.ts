@@ -1,8 +1,12 @@
-import type { Hotovo, Topic } from "../types";
+import type { Hotovo, Topic, TopicType } from "../types";
 import { computeTermin, isNeuceno } from "./termin";
+import { isTask, isTaskDone } from "./phase";
 
 /** Stav value for topics in the spaced retrieval queue. */
 export const STAV_RETRIEVAL = "Retrieval";
+
+/** Fáze 9 B: Stav written with Hotovo = měsíc when an úkol is done (existing option). */
+export const STAV_STABLE = "Stable";
 
 const STEPS: readonly Hotovo[] = ["Neučeno", "večer", "2 dny", "5 dní", "12 dní", "měsíc"];
 
@@ -12,12 +16,16 @@ export function nextHotovo(current: Hotovo | null): Hotovo | null {
   return i >= 0 && i < STEPS.length - 1 ? STEPS[i + 1] : null;
 }
 
-type ScheduleFields = Pick<Topic, "hotovo" | "nauceno" | "posledni">;
+/** `typ` optional: callers without it (older data, tests) are Téma. */
+type ScheduleFields = Pick<Topic, "hotovo" | "nauceno" | "posledni"> & { typ?: TopicType };
 
-/** Properties a write action sets in Notion. Omitted fields are left as they are. */
+/**
+ * Properties a write action sets in Notion. Omitted fields are left as they are.
+ * `posledni` is set by every Téma action; the úkol Hotovo leaves it alone.
+ */
 export type TopicPatch = {
   hotovo: Hotovo;
-  posledni: string;
+  posledni?: string;
   nauceno?: string;
   stav?: string;
 };
@@ -28,7 +36,7 @@ function result(current: ScheduleFields, patch: TopicPatch): ActionResult {
   const termin = computeTermin({
     hotovo: patch.hotovo,
     nauceno: patch.nauceno ?? current.nauceno,
-    posledni: patch.posledni,
+    posledni: patch.posledni ?? current.posledni,
   });
   return { patch, termin };
 }
@@ -60,19 +68,34 @@ export function afterNaucenoClick({ today }: { today: string }): ActionResult {
   );
 }
 
-/** Hotovo button: anything in the retrieval queue that is not finished. */
+/** Hotovo button: anything in the retrieval queue that is not finished. Never an úkol. */
 export function canMarkHotovo(t: ScheduleFields): boolean {
-  return t.hotovo !== "měsíc" && !(isNeuceno(t) && !t.nauceno);
+  return !isTask(t) && t.hotovo !== "měsíc" && !(isNeuceno(t) && !t.nauceno);
 }
 
-/** Naučeno dnes button: the true Neučeno queue (no Naučeno date yet). */
+/** Naučeno dnes button: the true Neučeno queue (no Naučeno date yet). Never an úkol. */
 export function canMarkNauceno(t: ScheduleFields): boolean {
-  return isNeuceno(t) && !t.nauceno;
+  return !isTask(t) && isNeuceno(t) && !t.nauceno;
 }
 
-export type TopicAction = "hotovo" | "nauceno";
+/** Fáze 9 B: Hotovo on an úkol that is not finished yet. */
+export function canMarkTaskDone(t: ScheduleFields): boolean {
+  return isTask(t) && !isTaskDone(t);
+}
+
+/**
+ * Fáze 9 B "Hotovo" on an úkol, minimal write: Hotovo = měsíc (already counts as done
+ * in the app and in Notion, so it drops out of every queue) + Stav = Stable. Nothing else.
+ */
+export function afterTaskDoneClick(): ActionResult {
+  return { patch: { hotovo: "měsíc", stav: STAV_STABLE }, termin: null };
+}
+
+/** `ukol`: the úkol Hotovo (POST /api/topics/{id}/ukol). */
+export type TopicAction = "hotovo" | "nauceno" | "ukol";
 
 export function applyAction(action: TopicAction, t: ScheduleFields, today: string): ActionResult | null {
+  if (action === "ukol") return canMarkTaskDone(t) ? afterTaskDoneClick() : null;
   if (action === "hotovo") return canMarkHotovo(t) ? afterHotovoClick({ ...t, today }) : null;
   return canMarkNauceno(t) ? afterNaucenoClick({ today }) : null;
 }

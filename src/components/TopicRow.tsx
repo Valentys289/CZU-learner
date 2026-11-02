@@ -1,10 +1,11 @@
 import type { Topic } from "../types";
 import { formatDate, pluralDny, relativeLabel } from "../lib/format";
-import { encodingDueState, encodingOverdueDays } from "../lib/phase";
+import { encodingDueState, encodingOverdueDays, isTask } from "../lib/phase";
 import { canMarkHotovo, canMarkNauceno } from "../lib/hotovo";
 import { METHOD_LABEL } from "../lib/sessions";
 import { SubjectBadge } from "./SubjectBadge";
 import { useTopicActions } from "./TopicActions";
+import { TaskRow } from "./TaskRow";
 
 /**
  * Row buttons: Fáze (checklist from the page body), Naučeno dnes (one tap, first learn), Hotovo on a due topic (opens
@@ -19,6 +20,8 @@ export function TopicRow({ topic, today, showBadge = true }: { topic: Topic; tod
   const action = canMarkNauceno(topic) ? "nauceno" : due && canMarkHotovo(topic) ? "hotovo" : "trenink";
   const busy = actions?.pending.has(topic.id) ?? false;
   const last = actions?.lastSession(topic.id);
+  // Fáze 9 B: an úkol never gets Trénink, Fáze or a Termín, wherever it is listed.
+  if (isTask(topic)) return <TaskRow task={topic} today={today} showBadge={showBadge} />;
 
   return (
     <li className={`topic${overdue ? " topic-overdue" : ""}`}>
