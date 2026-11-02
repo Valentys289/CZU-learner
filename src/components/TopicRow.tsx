@@ -1,5 +1,6 @@
 import type { Topic } from "../types";
-import { formatDate, relativeLabel } from "../lib/format";
+import { formatDate, pluralDny, relativeLabel } from "../lib/format";
+import { encodingDueState, encodingOverdueDays } from "../lib/phase";
 import { canMarkHotovo, canMarkNauceno } from "../lib/hotovo";
 import { METHOD_LABEL } from "../lib/sessions";
 import { SubjectBadge } from "./SubjectBadge";
@@ -11,7 +12,9 @@ import { useTopicActions } from "./TopicActions";
  */
 export function TopicRow({ topic, today, showBadge = true }: { topic: Topic; today: string; showBadge?: boolean }) {
   const actions = useTopicActions();
-  const overdue = topic.dueState === "overdue";
+  // Encoding topics have no Termín; their Deadline drives the Po termínu / Dnes flag.
+  const encState = encodingDueState(topic, today);
+  const overdue = topic.dueState === "overdue" || encState === "overdue";
   const due = overdue || topic.dueState === "today";
   const action = canMarkNauceno(topic) ? "nauceno" : due && canMarkHotovo(topic) ? "hotovo" : "trenink";
   const busy = actions?.pending.has(topic.id) ?? false;
@@ -30,6 +33,10 @@ export function TopicRow({ topic, today, showBadge = true }: { topic: Topic; tod
               </span>
             )}
             {!topic.termin && topic.deadline && <span>Deadline {formatDate(topic.deadline, today)}</span>}
+            {encState === "overdue" && (
+              <span className="flag flag-inline">Po termínu ({pluralDny(encodingOverdueDays(topic, today))})</span>
+            )}
+            {encState === "today" && <span className="flag flag-inline flag-warn">Dnes</span>}
             <span className="chip">{topic.hotovo ?? "Neučeno"}</span>
             {topic.stav && <span className="chip chip-stav">{topic.stav}</span>}
             {last?.score != null && (
@@ -42,7 +49,7 @@ export function TopicRow({ topic, today, showBadge = true }: { topic: Topic; tod
             )}
           </span>
         </span>
-        {overdue && !actions && <span className="flag">Po termínu</span>}
+        {topic.dueState === "overdue" && !actions && <span className="flag">Po termínu</span>}
       </a>
       {actions && (
         <button
