@@ -44,3 +44,16 @@ export function pluralNovychTemat(n: number): string {
   if (n >= 2 && n <= 4) return `${n} nová témata`;
   return `${n} nových témat`;
 }
+
+/** "1 předmět", "3 předměty", "5 předmětů". */
+export function pluralPredmetu(n: number): string {
+  if (n === 1) return "1 předmět";
+  if (n >= 2 && n <= 4) return `${n} předměty`;
+  return `${n} předmětů`;
+}
+
+/** "skryt 1 předmět", "skryty 2 předměty", "skryto 5 předmětů". */
+export function skrytoPredmetu(n: number): string {
+  const verb = n === 1 ? "skryt" : n >= 2 && n <= 4 ? "skryty" : "skryto";
+  return `${verb} ${pluralPredmetu(n)}`;
+}

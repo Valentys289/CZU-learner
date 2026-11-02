@@ -513,3 +513,22 @@ button { font: inherit; color: inherit; }
 .checklist-item input { width: 20px; height: 20px; accent-color: var(--accent); flex-shrink: 0; }
 .checklist-item input:disabled { opacity: 0.6; }
 .checklist-done span { color: var(--muted); text-decoration: line-through; }
+
+/* Fáze 9 C: hide subjects in Učím nové */
+.hidden-count { color: var(--muted); font-size: 0.82rem; font-weight: 400; }
+.subject-filter { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 8px; }
+.subject-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: var(--chip);
+  cursor: pointer;
+  min-height: 32px;
+  user-select: none;
+}
+.subject-chip input { margin: 0; accent-color: var(--accent); }
+.subject-chip-off .badge { opacity: 0.35; }
+.hidden-note { display: flex; align-items: center; gap: 10px; margin: 0 0 8px; color: var(--muted); font-size: 0.85rem; }
+.hidden-note .link-button { margin-top: 0; }

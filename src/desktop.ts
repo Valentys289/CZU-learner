@@ -4,6 +4,12 @@ export type DesktopBridge = {
   envCandidate: () => Promise<string | null>;
   importEnvToken: () => Promise<{ ok: boolean; error?: string }>;
   saveToken: (token: string) => Promise<{ ok: boolean; error?: string }>;
+  /**
+   * Small UI preferences in userData/prefs.json. The app runs on a random localhost
+   * port, so localStorage (per origin) does not survive a restart in the desktop app.
+   */
+  prefGet: (key: string) => Promise<string | null>;
+  prefSet: (key: string, value: string) => Promise<void>;
 };
 
 declare global {
