@@ -1,8 +1,8 @@
 // Fáze 9 A: native notifications. Pure helpers shared by the Electron main process
 // (scheduler, tray) and the Nastavení tab, so they can be tested without Electron.
-import type { Topic } from "../types";
+import type { Topic, TopicType } from "../types";
 import { dnesList } from "./termin";
-import { compareEncoding, type DueCounts, encodingDueState } from "./phase";
+import { compareEncoding, type DueCounts, encodingDueState, isTask, openTasks, taskDueState } from "./phase";
 import { pluralTemat } from "./format";
 
 export type NotifyKind = "morning" | "evening";
@@ -128,15 +128,21 @@ export function buildEveningText(left: string[]): string {
 }
 
 /**
- * What is still unticked today: due retrieval (Po termínu + Dnes) and encoding topics
- * whose Deadline is today or past. Same set as dueCounts, so the length matches
- * overdue + today. Retrieval first (as on Dnes), then encoding.
+ * What is still unticked today: due retrieval (Po termínu + Dnes), open úkoly whose
+ * Deadline is today or past, and encoding topics whose Deadline is today or past.
+ * Same set as dueCounts, so the length matches overdue + today. Order as on Dnes:
+ * retrieval, Úkoly, Učím nové.
  */
-export function leftToday<T extends Pick<Topic, "termin" | "dueState" | "subject" | "poradi" | "title" | "stav" | "hotovo" | "nauceno" | "deadline">>(
-  topics: T[],
-  today: string,
-): T[] {
-  const retrieval = dnesList(topics);
+export function leftToday<
+  T extends Pick<Topic, "termin" | "dueState" | "subject" | "poradi" | "title" | "stav" | "hotovo" | "nauceno" | "deadline"> & {
+    typ?: TopicType;
+  },
+>(topics: T[], today: string): T[] {
+  const retrieval = dnesList(topics.filter((t) => !isTask(t)));
+  const tasks = openTasks(topics, today).filter((t) => {
+    const s = taskDueState(t, today);
+    return s === "overdue" || s === "today";
+  });
   const encoding = topics
     .filter((t) => t.dueState !== "overdue" && t.dueState !== "today")
     .filter((t) => {
@@ -144,7 +150,7 @@ export function leftToday<T extends Pick<Topic, "termin" | "dueState" | "subject
       return s === "overdue" || s === "today";
     })
     .sort((a, b) => compareEncoding(a, b, today));
-  return [...retrieval, ...encoding];
+  return [...retrieval, ...tasks, ...encoding];
 }
 
 /** Tray menu line: "Dnes: 3 témata". */

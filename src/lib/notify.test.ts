@@ -141,6 +141,7 @@ describe("leftToday", () => {
         url: "",
         subject: "M",
         title,
+        typ: "Téma",
         hotovo: null,
         nauceno: null,
         posledni: null,
@@ -162,12 +163,19 @@ describe("leftToday", () => {
     topic("Encoding později", { deadline: "2026-11-10" }),
     topic("Encoding bez deadline"),
     topic("Hotové", { hotovo: "měsíc", nauceno: "2026-09-01", posledni: "2026-10-01", stav: "Stable" }),
+    topic("Úkol po termínu", { typ: "Úkol", deadline: "2026-10-31" }),
+    topic("Úkol dnes", { typ: "Úkol", deadline: TODAY }),
+    topic("Úkol budoucí", { typ: "Úkol", deadline: "2026-11-20" }),
+    topic("Úkol bez deadline", { typ: "Úkol" }),
+    topic("Úkol hotový po termínu", { typ: "Úkol", deadline: "2026-10-20", hotovo: "měsíc", stav: "Stable" }),
   ];
 
-  it("lists due retrieval, then encoding at or past Deadline", () => {
+  it("lists due retrieval, open úkoly, then encoding at or past Deadline", () => {
     expect(leftToday(topics, TODAY).map((t) => t.title)).toEqual([
       "Retrieval po termínu",
       "Retrieval dnes",
+      "Úkol po termínu",
+      "Úkol dnes",
       "Encoding po deadline",
       "Encoding deadline dnes",
     ]);
@@ -175,7 +183,19 @@ describe("leftToday", () => {
 
   it("matches dueCounts, so the evening and the morning agree", () => {
     const c = dueCounts(topics, TODAY);
+    expect(c.taskOverdue + c.taskToday).toBe(2);
     expect(leftToday(topics, TODAY)).toHaveLength(c.overdue + c.today);
+  });
+
+  it("evening text names the úkoly too", () => {
+    const left = leftToday(topics.filter((t) => t.typ === "Úkol"), TODAY).map((t) => t.title);
+    expect(buildEveningText(left)).toBe("Zbývá 2: Úkol po termínu, Úkol dnes");
+  });
+
+  it("without Typ everything stays Téma", () => {
+    const plain = topics.filter((t) => t.typ !== "Úkol");
+    const c = dueCounts(plain, TODAY);
+    expect(leftToday(plain, TODAY)).toHaveLength(c.overdue + c.today);
   });
 });
 
