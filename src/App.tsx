@@ -20,8 +20,9 @@ import { SessionSheet } from "./components/SessionSheet";
 import { ChecklistSheet } from "./components/ChecklistSheet";
 import { METHOD_LABEL, toPageId, type LastSession, type RetrievalMethod, type SessionWriteInput } from "./lib/sessions";
 import { desktop } from "./desktop";
+import { NastaveniTab } from "./components/NastaveniTab";
 
-type Tab = "dnes" | "predmety" | "timeline";
+type Tab = "dnes" | "predmety" | "timeline" | "nastaveni";
 
 /** `restoreLast`: the topic's skóre chip before a logged session, put back on undo. */
 type Toast =
@@ -246,11 +247,27 @@ export function App() {
     void load();
   }, [load]);
 
+  // Fáze 9 A: notification click / tray / Cmd+, switch the tab; Dnes also reloads so the numbers are fresh.
+  useEffect(
+    () =>
+      bridge?.onNavigate((section) => {
+        setTab(section);
+        if (section === "dnes") void load();
+      }),
+    [bridge, load],
+  );
+
   const dueCount = (() => {
     if (state.status !== "ready") return 0;
     const c = dueCounts(state.data.topics, state.data.today);
     return c.overdue + c.today;
   })();
+
+  // The menu bar line "Dnes: X témat" follows what the window shows.
+  const ready = state.status === "ready";
+  useEffect(() => {
+    if (ready) bridge?.reportDueCount(dueCount);
+  }, [bridge, ready, dueCount]);
 
   return (
     <div className="app">
@@ -265,39 +282,45 @@ export function App() {
       </header>
 
       <main className="content">
-        {state.status === "loading" && <p className="empty">Načítám z Notionu…</p>}
-        {state.status === "error" && bridge && state.code && TOKEN_CODES.includes(state.code) ? (
-          <TokenSetup
-            bridge={bridge}
-            reason={state.code === "no-token" ? "Aplikace zatím nemá Notion token." : state.message}
-            onSaved={() => void load()}
-          />
+        {tab === "nastaveni" && bridge ? (
+          <NastaveniTab bridge={bridge} />
         ) : (
-          state.status === "error" && (
-            <div className="error">
-              <strong>Chyba načítání</strong>
-              <p>{state.message}</p>
-            </div>
-          )
-        )}
-        {state.status === "ready" && (
-          <TopicActionsContext.Provider value={actions}>
-            {state.data.errors.length > 0 && tab === "dnes" && (
-              <div className="error">
-                <strong>Některé předměty se nenačetly</strong>
-                <p>{state.data.errors.map((e) => `${e.subject}: ${e.message}`).join(" · ")}</p>
-              </div>
+          <>
+            {state.status === "loading" && <p className="empty">Načítám z Notionu…</p>}
+            {state.status === "error" && bridge && state.code && TOKEN_CODES.includes(state.code) ? (
+              <TokenSetup
+                bridge={bridge}
+                reason={state.code === "no-token" ? "Aplikace zatím nemá Notion token." : state.message}
+                onSaved={() => void load()}
+              />
+            ) : (
+              state.status === "error" && (
+                <div className="error">
+                  <strong>Chyba načítání</strong>
+                  <p>{state.message}</p>
+                </div>
+              )
             )}
-            {tab === "dnes" && (
-              <DnesTab topics={state.data.topics} today={state.data.today} onOpenPredmety={() => setTab("predmety")} />
+            {state.status === "ready" && (
+              <TopicActionsContext.Provider value={actions}>
+                {state.data.errors.length > 0 && tab === "dnes" && (
+                  <div className="error">
+                    <strong>Některé předměty se nenačetly</strong>
+                    <p>{state.data.errors.map((e) => `${e.subject}: ${e.message}`).join(" · ")}</p>
+                  </div>
+                )}
+                {tab === "dnes" && (
+                  <DnesTab topics={state.data.topics} today={state.data.today} onOpenPredmety={() => setTab("predmety")} />
+                )}
+                {tab === "predmety" && (
+                  <PredmetyTab topics={state.data.topics} today={state.data.today} errors={state.data.errors} />
+                )}
+                {tab === "timeline" && (
+                  <TimelineTab topics={state.data.topics} milniky={state.data.milniky} today={state.data.today} />
+                )}
+              </TopicActionsContext.Provider>
             )}
-            {tab === "predmety" && (
-              <PredmetyTab topics={state.data.topics} today={state.data.today} errors={state.data.errors} />
-            )}
-            {tab === "timeline" && (
-              <TimelineTab topics={state.data.topics} milniky={state.data.milniky} today={state.data.today} />
-            )}
-          </TopicActionsContext.Provider>
+          </>
         )}
       </main>
 
@@ -354,6 +377,11 @@ export function App() {
         <TabButton active={tab === "timeline"} onClick={() => setTab("timeline")}>
           Timeline
         </TabButton>
+        {bridge && (
+          <TabButton active={tab === "nastaveni"} onClick={() => setTab("nastaveni")}>
+            Nastavení
+          </TabButton>
+        )}
       </nav>
     </div>
   );

@@ -514,3 +514,24 @@ button { font: inherit; color: inherit; }
 .checklist-item input { width: 20px; height: 20px; accent-color: var(--accent); flex-shrink: 0; }
 .checklist-item input:disabled { opacity: 0.6; }
 .checklist-done span { color: var(--muted); text-decoration: line-through; }
+
+/* Fáze 9 A: Nastavení (desktop app) */
+.settings-group { margin-bottom: 20px; }
+.settings-row { display: flex; align-items: center; gap: 10px; justify-content: space-between; min-height: 40px; }
+label.settings-row { justify-content: flex-start; cursor: pointer; }
+.settings-row-main { display: inline-flex; align-items: center; gap: 10px; cursor: pointer; }
+.settings-row input[type="checkbox"] { width: 18px; height: 18px; accent-color: var(--accent); }
+.settings-row input[type="time"] {
+  font: inherit;
+  color: inherit;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 4px 8px;
+}
+.settings-row input[type="time"]:disabled { opacity: 0.5; }
+.settings-reminder { margin-bottom: 8px; }
+.settings-hint { margin: 2px 0 8px; color: var(--muted); font-size: 0.85rem; }
+.settings-bad { color: var(--bad); }
+.settings-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.settings-status { color: var(--muted); font-size: 0.85rem; }
