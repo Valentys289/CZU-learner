@@ -37,3 +37,10 @@ export function pluralTemat(n: number): string {
   if (n >= 2 && n <= 4) return `${n} témata`;
   return `${n} témat`;
 }
+
+/** "1 nové téma", "3 nová témata", "5 nových témat". */
+export function pluralNovychTemat(n: number): string {
+  if (n === 1) return "1 nové téma";
+  if (n >= 2 && n <= 4) return `${n} nová témata`;
+  return `${n} nových témat`;
+}

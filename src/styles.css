@@ -151,6 +151,10 @@ button { font: inherit; color: inherit; }
   white-space: nowrap;
 }
 
+.flag-inline { font-size: 0.7rem; padding: 1px 7px; }
+.flag-warn { background: var(--warn); }
+@media (prefers-color-scheme: dark) { .flag-warn { color: #241a08; } }
+
 .badge {
   flex-shrink: 0;
   display: inline-grid;

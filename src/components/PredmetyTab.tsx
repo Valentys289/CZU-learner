@@ -3,17 +3,10 @@ import type { SubjectCode, SubjectError, Topic } from "../types";
 import { SUBJECTS } from "../notion/config";
 import { dnesList } from "../lib/termin";
 import { pluralTemat } from "../lib/format";
-import { isEncodingTopic } from "../lib/phase";
+import { compareEncoding, dueCounts, isEncodingTopic } from "../lib/phase";
 import { METHOD_LABEL, preferredMethodsFor } from "../lib/sessions";
 import { SubjectBadge } from "./SubjectBadge";
 import { TopicRow } from "./TopicRow";
-
-function byDeadline(a: Topic, b: Topic): number {
-  if (a.deadline && b.deadline) return a.deadline.localeCompare(b.deadline);
-  if (a.deadline) return -1;
-  if (b.deadline) return 1;
-  return (a.poradi ?? Infinity) - (b.poradi ?? Infinity) || a.title.localeCompare(b.title, "cs");
-}
 
 export function PredmetyTab({ topics, today, errors }: { topics: Topic[]; today: string; errors: SubjectError[] }) {
   const [open, setOpen] = useState<SubjectCode | null>(null);
@@ -23,9 +16,9 @@ export function PredmetyTab({ topics, today, errors }: { topics: Topic[]; today:
       {SUBJECTS.map((s) => {
         const mine = topics.filter((t) => t.subject === s.code);
         const due = dnesList(mine);
-        const overdue = due.filter((t) => t.dueState === "overdue").length;
-        const dueToday = due.length - overdue;
-        const notLearned = mine.filter(isEncodingTopic).sort(byDeadline);
+        // Po termínu / Dnes include encoding topics by Deadline (each topic counted once).
+        const { overdue, today: dueToday } = dueCounts(mine, today);
+        const notLearned = mine.filter(isEncodingTopic).sort((a, b) => compareEncoding(a, b, today));
         // Learned but not due: extra practice only (Trénink, log without moving the gap by default).
         const others = mine
           .filter((t) => !isEncodingTopic(t) && !due.includes(t))

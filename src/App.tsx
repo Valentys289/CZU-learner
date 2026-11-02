@@ -4,7 +4,8 @@ import { DnesTab } from "./components/DnesTab";
 import { PredmetyTab } from "./components/PredmetyTab";
 import { TimelineTab } from "./components/TimelineTab";
 import { formatToday } from "./lib/format";
-import { dnesList, withTermin } from "./lib/termin";
+import { withTermin } from "./lib/termin";
+import { dueCounts } from "./lib/phase";
 import {
   applyAction,
   applyUndo,
@@ -245,7 +246,11 @@ export function App() {
     void load();
   }, [load]);
 
-  const dueCount = state.status === "ready" ? dnesList(state.data.topics).length : 0;
+  const dueCount = (() => {
+    if (state.status !== "ready") return 0;
+    const c = dueCounts(state.data.topics, state.data.today);
+    return c.overdue + c.today;
+  })();
 
   return (
     <div className="app">
