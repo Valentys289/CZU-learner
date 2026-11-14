@@ -9,6 +9,8 @@ export type TopicActions = {
   openSession: (topic: Topic, method?: RetrievalMethod) => void;
   /** Fáze 7 B: open the Fáze checklist from the topic's page body. */
   openChecklist: (topic: Topic) => void;
+  /** Fáze 11: start a guided block over these topics (in this order). */
+  startBlock: (title: string, topics: Topic[]) => void;
   pending: ReadonlySet<string>;
   /** Last Tréninky session per topic page ID, for the skóre chip. */
   lastSession: (topicId: string) => LastSession | undefined;

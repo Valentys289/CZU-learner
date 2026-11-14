@@ -18,6 +18,7 @@ import { TopicActionsContext, type TopicActions } from "./components/TopicAction
 import { TokenSetup } from "./components/TokenSetup";
 import { SessionSheet } from "./components/SessionSheet";
 import { ChecklistSheet } from "./components/ChecklistSheet";
+import { BlockRunner } from "./components/BlockRunner";
 import { METHOD_LABEL, toPageId, type LastSession, type RetrievalMethod, type SessionWriteInput } from "./lib/sessions";
 import { desktop } from "./desktop";
 import { NastaveniTab } from "./components/NastaveniTab";
@@ -30,6 +31,8 @@ type Toast =
   | { kind: "undo"; snapshot: UndoSnapshot; busy: boolean; restoreLast?: { last: LastSession | undefined } };
 
 type Sheet = { topicId: string; method?: RetrievalMethod };
+
+type Block = { title: string; ids: string[] };
 
 const isEmpty = (o: object) => Object.keys(o).length === 0;
 
@@ -56,6 +59,7 @@ export function App() {
   const [toast, setToast] = useState<Toast | null>(null);
   const [sheet, setSheet] = useState<Sheet | null>(null);
   const [checklistId, setChecklistId] = useState<string | null>(null);
+  const [block, setBlock] = useState<Block | null>(null);
   const bridge = desktop();
   const stateRef = useRef(state);
   stateRef.current = state;
@@ -159,7 +163,8 @@ export function App() {
         replaceTopic(json.topic as Topic);
         setLast(topic.id, { date: json.session.date, method: json.session.method, score: json.session.score });
         setSheet(null);
-        const gap = !isEmpty(json.undo.written);
+        const moved = !isEmpty(json.undo.written);
+        const gapLabel = !moved ? "" : input.gap === "repeat" ? ", krok zopakován" : input.gap === "reset" ? ", od začátku" : ", gap posunut";
         setToast({
           kind: "undo",
           busy: false,
@@ -169,7 +174,7 @@ export function App() {
             previous: json.undo.previous,
             written: json.undo.written,
             sessionId: json.undo.sessionId,
-            label: `${METHOD_LABEL[input.method]}, skóre ${input.score}${gap ? ", gap posunut" : ""}: ${topic.title}`,
+            label: `${METHOD_LABEL[input.method]}, skóre ${input.score}${gapLabel}: ${topic.title}`,
             expiresAt: Date.now() + UNDO_MS,
           },
         });
@@ -231,6 +236,7 @@ export function App() {
       run: (t, a) => void run(t, a),
       openSession: (t, method) => setSheet({ topicId: t.id, method }),
       openChecklist: (t) => setChecklistId(t.id),
+      startBlock: (title, list) => list.length > 0 && setBlock({ title, ids: list.map((t) => t.id) }),
       pending,
       lastSession: (id) => lastMap?.[toPageId(id)],
     }),
@@ -250,6 +256,7 @@ export function App() {
   );
   const checklistTopic = checklistId && state.status === "ready" ? state.data.topics.find((t) => t.id === checklistId) : undefined;
   const closeChecklist = useCallback(() => setChecklistId(null), []);
+  const closeBlock = useCallback(() => setBlock(null), []);
   const checklistError = useCallback((message: string) => setToast({ kind: "error", message }), []);
 
 
@@ -320,7 +327,13 @@ export function App() {
                   </div>
                 )}
                 {tab === "dnes" && (
-                  <DnesTab topics={state.data.topics} today={state.data.today} onOpenPredmety={() => setTab("predmety")} />
+                  <DnesTab
+                    topics={state.data.topics}
+                    milniky={state.data.milniky}
+                    last={state.data.treninky.last}
+                    today={state.data.today}
+                    onOpenPredmety={() => setTab("predmety")}
+                  />
                 )}
                 {tab === "predmety" && (
                   <PredmetyTab topics={state.data.topics} today={state.data.today} errors={state.data.errors} />
@@ -335,7 +348,7 @@ export function App() {
       </main>
 
       {toast?.kind === "error" && (
-        <div className="toast" role="alert">
+        <div className={`toast${block ? " toast-in-block" : ""}`} role="alert">
           <p>{toast.message}</p>
           <button type="button" onClick={() => setToast(null)} aria-label="Zavřít">
             Zavřít
@@ -343,7 +356,7 @@ export function App() {
         </div>
       )}
       {toast?.kind === "undo" && (
-        <div className="toast toast-undo" role="status">
+        <div className={`toast toast-undo${block ? " toast-in-block" : ""}`} role="status">
           <p>{toast.snapshot.label}</p>
           <button
             type="button"
@@ -371,6 +384,18 @@ export function App() {
             setSheet(null);
             void run(sheetTopic, "hotovo");
           }}
+        />
+      )}
+
+      {block && state.status === "ready" && (
+        <BlockRunner
+          title={block.title}
+          ids={block.ids}
+          topics={state.data.topics}
+          today={state.data.today}
+          lastSession={actions.lastSession}
+          onSave={saveSession}
+          onClose={closeBlock}
         />
       )}
 

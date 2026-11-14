@@ -253,6 +253,20 @@ Endpoints: `POST /api/topics/{pageId}/session` with `{ method, score, date?, gap
 
 In Notion, filter Tréninky by `Skóre` ≤ 2 (optionally the last 14 days of `Datum`) and group by `Téma` or `Předmět` to see weak topics; group by `Metoda` to see which method works. Tréninky rows never appear on the Timeline and never create dates or pages elsewhere.
 
+## Blok, Před testem, revize (Fáze 11)
+
+**Začít blok** on Dnes walks through everything due for retrieval, one topic at a time, interleaved by subject (never two topics of one subject in a row while another subject is left). Per topic: recall from memory with the suggested method (the subject's first preferred method that is not the one used last time), one Otázka na propojení, then skóre 1 to 5 and **Uložit a další**. Each save is a normal Tréninky session: the interval follows the skóre, the reflection under skóre 1 to 3 is optional. **Přeskočit** moves a topic to the end once; skipped twice it stays on Dnes. Keys: 1 to 5, Enter, S, Esc. The end screen shows count, average skóre, time and the topics that come back soon.
+
+**Před testem**: for a test, zápočet or zkouška in the next 14 days whose Milníky row has `Progress témata`, Dnes shows a card with the learned topics not trained since 14 days before the date (a Tréninky session or `Poslední opakování` in that window counts), weakest last skóre first, including topics already at měsíc. *Dnešní dávka* spreads the rest evenly over the days left; *Všechno* takes them all. These run as a block; a topic that is not due is logged only (Jen zápis), so the spacing is not disturbed.
+
+**Týdenní revize** (topics with `Naučeno` in the last 7 days) is always offered on Dnes and highlighted on Sunday; **Měsíční revize** (this calendar month) shows on the last day of the month. Both are blocks, log only for topics that are not due.
+
+**Výhled** and **Blíží se** on Dnes: retrieval due on each of the next 7 days (tests marked) and the next dated milestones within 30 days.
+
+### Wide layout
+
+From 1000 px the app shows a sidebar instead of the bottom tabs and Dnes in two columns (three from 1440 px); Předměty and Timeline become grids. The Mac app opens 1280 × 860 and can go full screen; a narrow window still gives the phone layout.
+
 ## Checklist v těle tématu
 
 **Fáze** on a topic row opens the checklist from the topic's Notion page body: the to_do items under the Fáze sections, grouped as they are in Notion. Ticking an item shows at once and is written to Notion; if Notion refuses, the tick flips back and the app shows "Nepodařilo se uložit checklist".

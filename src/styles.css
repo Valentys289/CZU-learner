@@ -581,3 +581,144 @@ label.settings-row { justify-content: flex-start; cursor: pointer; }
 .sheet-restore { display: flex; flex-wrap: wrap; gap: 14px; }
 .history-note { flex-basis: 100%; font-size: 0.82rem; color: var(--muted); overflow-wrap: anywhere; }
 .sheet-prompt .link-button, .sheet-restore .link-button, .sheet-legend-action { margin-top: 0; }
+
+/* Fáze 11: Blok (guided run), Před testem, revize */
+.block-start {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  border: 0;
+  border-radius: 14px;
+  padding: 14px 16px;
+  margin: 4px 0 8px;
+  background: var(--accent);
+  color: #fff;
+  cursor: pointer;
+  text-align: left;
+}
+.block-start-main { font-size: 1.1rem; font-weight: 700; }
+.block-start-sub { font-size: 0.88rem; opacity: 0.9; }
+@media (prefers-color-scheme: dark) { .block-start { color: #10291c; } }
+.prep {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 12px;
+  margin: 8px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.prep-title { display: flex; align-items: center; gap: 10px; margin: 0; font-size: 1rem; }
+.prep-name { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.prep-when { font-size: 0.85rem; font-weight: 600; color: var(--warn); white-space: nowrap; }
+.prep .area-hint, .prep .empty { margin: 0; }
+.prep-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.prep-actions .topic-action { margin: 0; }
+.reviews { display: flex; flex-direction: column; align-items: flex-start; margin: 4px 0; }
+.reviews .link-button { margin-top: 2px; text-align: left; }
+.reviews-on { background: var(--warn-bg); border-radius: 12px; padding: 8px 12px; }
+.reviews .area-hint { margin: 2px 0 0; }
+
+.block {
+  position: fixed;
+  inset: 0;
+  z-index: 3;
+  background: var(--bg);
+  overflow-y: auto;
+}
+.block-inner {
+  max-width: 640px;
+  margin: 0 auto;
+  padding: calc(12px + env(safe-area-inset-top)) 16px calc(96px + env(safe-area-inset-bottom));
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.block-head { display: flex; align-items: center; gap: 10px; }
+.block-name { flex: 1; min-width: 0; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
+.block-count { font-weight: 700; font-variant-numeric: tabular-nums; }
+.block-bar { flex: none; }
+.block-topic { display: flex; align-items: center; gap: 12px; margin-top: 6px; }
+.block-title { margin: 0; font-size: 1.4rem; line-height: 1.25; overflow-wrap: anywhere; }
+.block-meta { margin: 0; display: flex; flex-wrap: wrap; gap: 6px; }
+.block-step {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.block-step-title { margin: 0; font-size: 0.95rem; }
+.block-step-title .sheet-hint { font-weight: 400; }
+.block-reflection { display: flex; flex-direction: column; gap: 8px; }
+.block-actions { display: flex; flex-direction: column; gap: 8px; }
+.block-keys { margin: 0; font-size: 0.78rem; color: var(--muted); text-align: center; }
+@media (hover: none) { .block-keys { display: none; } }
+.block-done-title { margin: 24px 0 0; font-size: 1.5rem; }
+.block-stats { padding: 0; }
+.block-weak { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+/* In a block there is no tab bar: the toast sits at the very bottom, the block leaves room for it. */
+.toast-in-block { bottom: calc(12px + env(safe-area-inset-bottom)); }
+
+/* Fáze 11: Dnes columns, Výhled, Blíží se */
+.dnes-side { margin-top: 24px; padding-top: 4px; border-top: 1px solid var(--border); }
+.ahead { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; }
+.ahead-day { display: flex; flex-direction: column; align-items: center; gap: 4px; font-size: 0.78rem; color: var(--muted); }
+.ahead-count { font-weight: 700; color: var(--text); font-variant-numeric: tabular-nums; }
+.ahead-bar { width: 100%; height: 48px; border-radius: 6px; background: var(--chip); display: flex; align-items: flex-end; overflow: hidden; }
+.ahead-bar span { display: block; width: 100%; background: var(--accent); border-radius: 6px 6px 0 0; min-height: 0; }
+.ahead-flag { font-size: 0.68rem; font-weight: 700; color: var(--warn); }
+.ahead-test .ahead-bar { box-shadow: inset 0 0 0 1.5px var(--warn); }
+.soon { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.soon li { display: flex; align-items: center; gap: 10px; font-size: 0.92rem; }
+.soon-title { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.soon-when { color: var(--muted); font-size: 0.85rem; white-space: nowrap; }
+
+/* Wide window (Mac app full screen, desktop browser): sidebar navigation and columns. */
+@media (min-width: 1000px) {
+  .app { max-width: none; margin: 0; padding-left: 208px; }
+  .header { padding-left: 28px; padding-right: 28px; }
+  .content { padding: 16px 28px 32px; width: 100%; max-width: 1500px; }
+  .tabs {
+    top: 0;
+    right: auto;
+    width: 208px;
+    flex-direction: column;
+    justify-content: flex-start;
+    gap: 2px;
+    padding: 20px 10px;
+    border-top: 0;
+    border-right: 1px solid var(--border);
+    z-index: 2;
+  }
+  .tabs::before { content: "ČZU"; font-weight: 800; font-size: 1.1rem; padding: 4px 12px 16px; color: var(--accent); }
+  .tab { flex: none; max-width: none; justify-content: flex-start; padding: 10px 12px; border-radius: 10px; }
+  .tab-active { box-shadow: none; background: var(--chip); }
+  /* Two columns: Opakování on the left; Výhled and Blíží se above Úkoly and Učím nové on the right. */
+  .dnes-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 4px 28px; align-items: start; }
+  .dnes-col:first-child { grid-row: 1 / span 2; }
+  .dnes-side { grid-column: 2; grid-row: 1; margin-top: 0; padding-top: 0; border-top: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+  .dnes-col-new { grid-column: 2; grid-row: 2; }
+  .dnes-col > .area-title:first-child, .dnes-side > section:first-child > .area-title { margin-top: 4px; }
+  .cards, .milestones { display: grid; grid-template-columns: repeat(auto-fill, minmax(420px, 1fr)); align-items: start; }
+  .card-open { grid-column: 1 / -1; }
+  .settings { max-width: 640px; }
+  .toast { left: 224px; bottom: 16px; }
+  .block-inner { max-width: 760px; padding-top: 32px; }
+  .block-title { font-size: 1.7rem; }
+}
+
+/* Very wide: three columns, the side panel stays in view. */
+@media (min-width: 1440px) {
+  .dnes-grid { grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr) 300px; }
+  .dnes-col:first-child { grid-row: 1; }
+  .dnes-col-new { grid-column: 2; grid-row: 1; }
+  .dnes-col-new > .area-encoding:first-child { margin-top: 0; padding-top: 0; border-top: 0; }
+  .dnes-side { grid-column: 3; grid-row: 1; display: block; position: sticky; top: 76px; }
+  .dnes-side > section + section { margin-top: 20px; }
+}

@@ -166,7 +166,8 @@ function isOurs(event: IpcMainInvokeEvent): boolean {
 function createWindow(show = true) {
   mainWindow = new BrowserWindow({
     show,
-    width: 440,
+    // Fáze 11: wide by default (sidebar and columns from 1000 px); narrow still works like the phone layout.
+    width: 1280,
     height: 860,
     minWidth: 360,
     minHeight: 560,
