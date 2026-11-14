@@ -7,6 +7,8 @@ import { applyAction, buildUndoSnapshot, type TopicAction, type TopicPatch, type
 import type { Hotovo, SubjectError, Topic, TopicsResponse, TopicType } from "../types";
 import {
   buildSessionRow,
+  isAdvance,
+  sessionNote,
   isMethod,
   lastSessionByTopic,
   parseSessionInput,
@@ -251,6 +253,7 @@ export function pageToSession(page: NotionPage): TrainingSession {
     method: isMethod(method) ? method : null,
     score: readNumber(page, TRENINKY_PROP.skore),
     advancedGap: gap?.checkbox ?? false,
+    note: readRichText(page, TRENINKY_PROP.poznamka),
   };
 }
 
@@ -415,8 +418,9 @@ export async function undoTopic(
 }
 
 /**
- * Log one retrieval session (Fáze 6): create a Tréninky row and, with Posunout
- * gap on, advance Hotovo exactly like the Fáze 2 button (Poslední = session day).
+ * Log one retrieval session (Fáze 6): create a Tréninky row and, unless the gap
+ * is Jen zápis, move Hotovo (Fáze 10: advance, repeat the step or back to večer;
+ * Poslední = session day).
  * The row is created first; if the topic write then fails, the row is archived
  * again, so a session is never logged as "Posunul gap" without the gap moving.
  */
@@ -441,11 +445,11 @@ export async function logSession(
   const before = pageToTopic(page, subject, today);
   if (isTask(before)) throw new NotionError("Úkol nemá trénink, obnov seznam", 409);
   const result = sessionPatch(before, input);
-  if (input.advanceGap && !result) throw new NotionError("Tohle téma už nejde posunout, vypni Posunout gap", 409);
+  if (input.gap !== "none" && !result) throw new NotionError("Tohle téma už nejde posunout, vyber Jen zápis", 409);
 
   const created = await notionRequest<NotionPage>(token, LEGACY_VERSION, "POST", "/pages", {
     parent: { database_id: databaseId },
-    properties: buildSessionRow(before, input, result !== null),
+    properties: buildSessionRow(before, { ...input, note: sessionNote(input.note, before, result) }, isAdvance(before, result)),
   });
 
   let topic = before;

@@ -49,7 +49,7 @@ function readJson(req: IncomingMessage): Promise<unknown> {
  *   POST /api/topics/{pageId}/hotovo      Fáze 2 write
  *   POST /api/topics/{pageId}/nauceno     Fáze 2 write
  *   POST /api/topics/{pageId}/ukol        Fáze 9 B: úkol Hotovo (Hotovo = měsíc + Stav = Stable)
- *   POST /api/topics/{pageId}/session     Fáze 6: { method, score, date?, advanceGap } → Tréninky row (+ Hotovo)
+ *   POST /api/topics/{pageId}/session     Fáze 6 + 10: { method, score, date?, gap, note? } → Tréninky row (+ Hotovo)
  *   GET  /api/topics/{pageId}/sessions    Fáze 6: last 10 Tréninky rows of the topic
  *   POST /api/topics/{pageId}/undo        { previous?, written?, sessionId? }: revert the last write
  *   GET  /api/topics/{pageId}/checklist   Fáze 7 B: to_do items under the Fáze sections of the page body

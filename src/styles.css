@@ -553,3 +553,31 @@ label.settings-row { justify-content: flex-start; cursor: pointer; }
 .subject-chip-off .badge { opacity: 0.35; }
 .hidden-note { display: flex; align-items: center; gap: 10px; margin: 0 0 8px; color: var(--muted); font-size: 0.85rem; }
 .hidden-note .link-button { margin-top: 0; }
+
+/* Fáze 10: interval from skóre, optional reflection, higher-order question */
+.seg-small { min-height: 36px; padding: 6px 10px; font-size: 0.88rem; }
+.sheet-prompt, .sheet-last-next {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: var(--chip);
+  font-size: 0.95rem;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.sheet-prompt p { margin: 0; }
+.sheet-prompt-label { display: block; font-size: 0.72rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 2px; }
+.sheet-prompt-actions { display: flex; gap: 14px; }
+.sheet-legend-action { margin-left: 10px; font-size: 0.78rem; text-transform: none; letter-spacing: 0; }
+.sheet-input {
+  font: inherit;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: inherit;
+}
+.sheet-restore { display: flex; flex-wrap: wrap; gap: 14px; }
+.history-note { flex-basis: 100%; font-size: 0.82rem; color: var(--muted); overflow-wrap: anywhere; }
+.sheet-prompt .link-button, .sheet-restore .link-button, .sheet-legend-action { margin-top: 0; }

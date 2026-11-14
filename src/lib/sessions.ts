@@ -1,6 +1,7 @@
 import type { SubjectCode, Topic } from "../types";
 import { SUBJECTS, TRENINKY_PROP } from "../notion/config";
-import { afterHotovoClick, canMarkHotovo, type ActionResult } from "./hotovo";
+import { afterHotovoClick, canMarkHotovo, nextHotovo, type ActionResult } from "./hotovo";
+import { computeTermin, isNeuceno } from "./termin";
 
 /** Retrieval methods. Keys are stored in Notion (Tréninky › Metoda); labels are UI only. */
 export const METHODS = ["flashcards", "generatedQs", "brainDump", "quizlet", "other"] as const;
@@ -57,14 +58,39 @@ export type TrainingSession = {
   method: RetrievalMethod | null;
   score: number | null;
   advancedGap: boolean;
+  /** Tréninky › Poznámka (Fáze 10 reflection), null when empty. */
+  note: string | null;
 };
+
+/**
+ * Fáze 10: what a session does to the topic's interval.
+ * - advance: the Fáze 2 Hotovo advance (next, longer gap)
+ * - repeat: same step again (Hotovo stays, Poslední = session day, same gap from today)
+ * - reset: back to večer (Hotovo = večer, Poslední = session day, next in 2 days)
+ * - none: log only, Hotovo and Poslední untouched
+ */
+export const GAP_MODES = ["advance", "repeat", "reset", "none"] as const;
+export type GapMode = (typeof GAP_MODES)[number];
+
+export const GAP_LABEL: Record<GapMode, string> = {
+  advance: "Posunout",
+  repeat: "Zopakovat krok",
+  reset: "Od začátku",
+  none: "Jen zápis",
+};
+
+export function isGapMode(value: unknown): value is GapMode {
+  return typeof value === "string" && (GAP_MODES as readonly string[]).includes(value);
+}
 
 export type SessionWriteInput = {
   method: RetrievalMethod;
   score: number;
   /** YYYY-MM-DD, Europe/Prague. Defaults to today. */
   date?: string;
-  advanceGap: boolean;
+  gap: GapMode;
+  /** Fáze 10: optional reflection, written to Tréninky › Poznámka. Empty = nothing written. */
+  note?: string;
 };
 
 /** Last session per topic, for the skóre chip on rows. */
@@ -96,6 +122,18 @@ export function defaultAdvanceGap(t: Pick<Topic, "dueState" | "hotovo" | "naucen
   return (t.dueState === "overdue" || t.dueState === "today") && canMarkHotovo(t);
 }
 
+/**
+ * Fáze 10: the interval follows the skóre (confidence beats the answer sheet).
+ * Only for a due topic that can still move; extra practice and finished topics
+ * stay log only. Skóre 4 to 5 advance, 3 repeats the step, 1 to 2 start again
+ * at večer. Without a skóre yet: advance (the old default).
+ */
+export function suggestedGap(t: Pick<Topic, "dueState" | "hotovo" | "nauceno" | "posledni">, score: number | null): GapMode {
+  if (!defaultAdvanceGap(t)) return "none";
+  if (score === null || score >= 4) return "advance";
+  return score === 3 ? "repeat" : "reset";
+}
+
 /** Dashed lower-case UUID, the form Notion returns for page IDs. Used as the join key. */
 export function toPageId(id: string): string {
   const hex = id.replace(/-/g, "").toLowerCase();
@@ -123,29 +161,62 @@ export function parseSessionInput(
     return { ok: false, error: "Neplatné datum" };
   }
   if (date > today) return { ok: false, error: "Datum tréninku nemůže být v budoucnu" };
-  if (typeof b.advanceGap !== "boolean") return { ok: false, error: "Chybí volba Posunout gap" };
-  return { ok: true, input: { method: b.method, score, date, advanceGap: b.advanceGap } };
+  // `advanceGap` is the Fáze 6 body (an older open tab); `gap` wins when both are sent.
+  const gap = isGapMode(b.gap) ? b.gap : typeof b.advanceGap === "boolean" ? (b.advanceGap ? "advance" : "none") : null;
+  if (!gap) return { ok: false, error: "Chybí volba intervalu" };
+  if (b.note !== undefined && b.note !== null && typeof b.note !== "string") return { ok: false, error: "Neplatná poznámka" };
+  const note = typeof b.note === "string" ? b.note.trim().slice(0, NOTE_MAX) : "";
+  return { ok: true, input: { method: b.method, score, date, gap, note } };
 }
 
+/** Longest Poznámka the app writes (Notion's rich text limit is 2000). */
+export const NOTE_MAX = 500;
+
 /**
- * The topic patch a session applies: the Fáze 2 Hotovo advance with Poslední
- * opakování = the session day, or null when Posunout gap is off (log only).
+ * The topic patch a session applies, with Poslední opakování = the session day,
+ * or null for Jen zápis (and for topics that cannot move: unlearned or měsíc).
+ * On the first retrieval (Hotovo Neučeno with a Naučeno date) every mode but
+ * none is the advance to večer: that already is the shortest gap.
  */
 export function sessionPatch(
   topic: Pick<Topic, "hotovo" | "nauceno" | "posledni">,
-  input: Pick<SessionWriteInput, "advanceGap"> & { date: string },
+  input: Pick<SessionWriteInput, "gap"> & { date: string },
 ): ActionResult | null {
-  if (!input.advanceGap || !canMarkHotovo(topic)) return null;
-  return afterHotovoClick({ ...topic, today: input.date });
+  if (input.gap === "none" || !canMarkHotovo(topic)) return null;
+  const advance = afterHotovoClick({ ...topic, today: input.date });
+  if (input.gap === "advance" || isNeuceno(topic) || !topic.hotovo) return advance;
+  const hotovo = input.gap === "reset" ? "večer" : topic.hotovo;
+  const patch = { hotovo, posledni: input.date };
+  return { patch, termin: computeTermin({ ...topic, ...patch }) };
 }
 
 const shortTitle = (title: string) => (title.length > 48 ? `${title.slice(0, 47).trimEnd()}…` : title);
 const text = (content: string) => ({ rich_text: content ? [{ type: "text", text: { content: content.slice(0, 2000) } }] : [] });
 
+/**
+ * True when the patch moved Hotovo one step forward (the Tréninky "Posunul gap"
+ * checkbox). Zopakovat krok and Od začátku are not an advance.
+ */
+export function isAdvance(topic: Pick<Topic, "hotovo">, result: ActionResult | null): boolean {
+  return result !== null && result.patch.hotovo === nextHotovo(topic.hotovo);
+}
+
+/**
+ * Poznámka for the Tréninky row: the reflection, plus the interval choice when it
+ * was not an advance (so Notion shows why the gap did not move). Empty = none.
+ */
+export function sessionNote(note: string, topic: Pick<Topic, "hotovo">, result: ActionResult | null): string {
+  const parts = [note.trim()];
+  if (result && !isAdvance(topic, result)) {
+    parts.push(result.patch.hotovo === topic.hotovo ? "Interval: zopakovat krok" : "Interval: od začátku");
+  }
+  return parts.filter(Boolean).join(" · ").slice(0, NOTE_MAX + 40);
+}
+
 /** Notion properties for a new Tréninky row. `advancedGap` is what actually happened to the topic. */
 export function buildSessionRow(
   topic: Pick<Topic, "id" | "subject" | "title">,
-  input: Pick<SessionWriteInput, "method" | "score"> & { date: string },
+  input: Pick<SessionWriteInput, "method" | "score"> & { date: string; note?: string },
   advancedGap: boolean,
 ): Record<string, unknown> {
   const subject = SUBJECTS.find((s) => s.code === topic.subject);
@@ -161,6 +232,8 @@ export function buildSessionRow(
     [TRENINKY_PROP.temaPageId]: text(toPageId(topic.id)),
     [TRENINKY_PROP.posunulGap]: { checkbox: advancedGap },
     [TRENINKY_PROP.zdroj]: { select: { name: "app" } },
+    // Only when there is something to say, so a skipped reflection writes nothing.
+    ...(input.note ? { [TRENINKY_PROP.poznamka]: text(input.note) } : {}),
   };
 }
 

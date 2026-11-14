@@ -5,7 +5,7 @@ import { PredmetyTab } from "./components/PredmetyTab";
 import { TimelineTab } from "./components/TimelineTab";
 import { formatToday } from "./lib/format";
 import { withTermin } from "./lib/termin";
-import { dueCounts } from "./lib/phase";
+import { dueCounts, isRetrievalTopic } from "./lib/phase";
 import {
   applyAction,
   applyUndo,
@@ -238,6 +238,16 @@ export function App() {
   );
   const sheetTopic = sheet && state.status === "ready" ? state.data.topics.find((t) => t.id === sheet.topicId) : undefined;
   const closeSheet = useCallback(() => setSheet(null), []);
+  // Fáze 10: other learned topics of the same subject, for the link question in the sheet.
+  const sheetOthers = useMemo(
+    () =>
+      sheetTopic && state.status === "ready"
+        ? state.data.topics
+            .filter((t) => t.subject === sheetTopic.subject && t.id !== sheetTopic.id && isRetrievalTopic(t))
+            .map((t) => t.title)
+        : [],
+    [sheetTopic, state],
+  );
   const checklistTopic = checklistId && state.status === "ready" ? state.data.topics.find((t) => t.id === checklistId) : undefined;
   const closeChecklist = useCallback(() => setChecklistId(null), []);
   const checklistError = useCallback((message: string) => setToast({ kind: "error", message }), []);
@@ -351,6 +361,7 @@ export function App() {
           key={sheetTopic.id}
           topic={sheetTopic}
           today={state.data.today}
+          others={sheetOthers}
           initialMethod={sheet?.method}
           configured={state.data.treninky.configured}
           treninkyError={state.data.treninky.error}
