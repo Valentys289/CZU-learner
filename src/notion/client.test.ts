@@ -436,6 +436,7 @@ describe("Tréninky DB (Fáze 6)", () => {
       method: "flashcards",
       score: 4,
       advancedGap: true,
+      note: null,
     });
   });
 
@@ -493,7 +494,7 @@ describe("Tréninky DB (Fáze 6)", () => {
     );
     vi.stubGlobal("fetch", fetchMock);
 
-    const res = await logSession("tok", "trenink-db", topicId, { method: "quizlet", score: 2, advanceGap: false });
+    const res = await logSession("tok", "trenink-db", topicId, { method: "quizlet", score: 2, gap: "none" });
 
     expect(fetchMock.mock.calls.map(([, init]) => init?.method)).toEqual(["GET", "POST"]);
     const created = JSON.parse(fetchMock.mock.calls[1][1]!.body as string);
@@ -501,6 +502,25 @@ describe("Tréninky DB (Fáze 6)", () => {
     expect(created.properties.Metoda).toEqual({ select: { name: "quizlet" } });
     expect(res.topic).toMatchObject({ hotovo: "2 dny", posledni: "2026-10-18" });
     expect(res.undo).toEqual({ previous: {}, written: {}, sessionId: "sess-1" });
+  });
+
+  it("logSession Od začátku: Hotovo back to večer, Posunul gap off, reflection and interval in Poznámka", async () => {
+    vi.useFakeTimers({ now, toFake: ["Date"] });
+    const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
+      if (init?.method === "POST") return json(sessionPage());
+      if (init?.method === "PATCH") return json(inChemie);
+      return json(inChemie);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await logSession("tok", "trenink-db", topicId, { method: "flashcards", score: 1, gap: "reset", note: "Chyba: nešlo si vybavit" });
+
+    const created = JSON.parse(fetchMock.mock.calls[1][1]!.body as string);
+    expect(created.properties["Posunul gap"]).toEqual({ checkbox: false });
+    expect(created.properties.Poznámka.rich_text[0].text.content).toBe("Chyba: nešlo si vybavit · Interval: od začátku");
+    expect(JSON.parse(fetchMock.mock.calls[2][1]!.body as string)).toEqual({
+      properties: { Hotovo: { select: { name: "večer" } }, "Poslední opakování": { date: { start: "2026-10-26" } } },
+    });
   });
 
   it("archives the new row again when the topic write fails", async () => {

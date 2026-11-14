@@ -1,21 +1,26 @@
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import type { Topic } from "../types";
 import { formatDate } from "../lib/format";
 import { canMarkHotovo } from "../lib/hotovo";
 import {
-  defaultAdvanceGap,
-  LOW_SCORE,
+  GAP_LABEL,
   METHOD_LABEL,
   normalizeScore,
   orderedMethods,
   preferredMethodsFor,
   SCORES,
   sessionPatch,
+  suggestedGap,
+  type GapMode,
   type RetrievalMethod,
   type SessionWriteInput,
   type TrainingSession,
 } from "../lib/sessions";
+import { isNeuceno } from "../lib/termin";
+import { MISTAKES, REFLECTION_MAX_SCORE, reflectionNote, scoreTip, NEXT_MAX } from "../lib/reflection";
+import { hashSeed, pickPrompt } from "../lib/prompts";
 import { SubjectBadge } from "./SubjectBadge";
+import { useStoredFlag } from "./useStoredFlag";
 
 type History = { status: "loading" } | { status: "ready"; sessions: TrainingSession[] } | { status: "error"; message: string };
 
@@ -30,13 +35,17 @@ const isQuizletLink = (url: string | null) => {
 };
 
 /**
- * Fáze 6 session sheet: Metoda, Skóre 1 to 5, Datum, Posunout gap, Uložit.
- * Writes one Tréninky row; with Posunout gap on it also advances Hotovo.
+ * Fáze 6 session sheet: Metoda, Skóre 1 to 5, Datum, Interval, Uložit.
+ * Writes one Tréninky row and (unless Jen zápis) moves Hotovo.
+ * Fáze 10: the interval follows the skóre until you pick one yourself, an optional
+ * reflection (skóre 1 to 3) goes to Poznámka, and one higher-order question sits on top.
+ * Both extras can be switched off in the sheet and never block Uložit.
  * Without a configured Tréninky DB it says so and offers only the old Hotovo.
  */
 export function SessionSheet({
   topic,
   today,
+  others = [],
   initialMethod,
   treninkyError,
   configured,
@@ -46,6 +55,8 @@ export function SessionSheet({
 }: {
   topic: Topic;
   today: string;
+  /** Titles of other learned topics of the same subject, for the link question. */
+  others?: string[];
   initialMethod?: RetrievalMethod;
   configured: boolean;
   treninkyError: string | null;
@@ -59,7 +70,17 @@ export function SessionSheet({
   const [method, setMethod] = useState<RetrievalMethod | null>(initialMethod ?? methods[0] ?? null);
   const [score, setScore] = useState<number | null>(null);
   const [date, setDate] = useState(today);
-  const [advanceGap, setAdvanceGap] = useState(() => defaultAdvanceGap(topic));
+  const [gap, setGap] = useState<GapMode>(() => suggestedGap(topic, null));
+  const [gapTouched, setGapTouched] = useState(false);
+  const [mistakes, setMistakes] = useState<string[]>([]);
+  const [next, setNext] = useState("");
+  const [reflectionOn, setReflectionOn] = useStoredFlag("trenink.reflexe", true);
+  const [promptOn, setPromptOn] = useStoredFlag("trenink.otazka", true);
+  const [promptTurn, setPromptTurn] = useState(0);
+  const prompt = useMemo(
+    () => pickPrompt(others, hashSeed(`${topic.id}:${today}`) + promptTurn),
+    [others, topic.id, today, promptTurn],
+  );
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [history, setHistory] = useState<History>({ status: "loading" });
@@ -67,7 +88,21 @@ export function SessionSheet({
   const firstRef = useRef<HTMLButtonElement>(null);
 
   const canAdvance = canMarkHotovo(topic);
-  const preview = advanceGap ? sessionPatch(topic, { advanceGap, date: date || today }) : null;
+  // First retrieval (Neučeno with Naučeno): repeat and reset are the same as advance, so only offer advance.
+  const gapModes: GapMode[] = !canAdvance ? ["none"] : isNeuceno(topic) ? ["advance", "none"] : ["advance", "repeat", "reset", "none"];
+  const effectiveGap: GapMode = gapModes.includes(gap) ? gap : canAdvance ? "advance" : "none";
+  const preview = sessionPatch(topic, { gap: effectiveGap, date: date || today });
+  // The "Příště: …" part of the newest session's Poznámka, shown as a reminder on top.
+  const lastNext =
+    history.status === "ready" ? (/Příště: (.+?)(?: · |$)/.exec(history.sessions[0]?.note ?? "")?.[1] ?? null) : null;
+  const showReflection = score !== null && score <= REFLECTION_MAX_SCORE;
+  const tip = scoreTip(score);
+
+  function pickScore(n: number) {
+    setScore(n);
+    // The interval follows the skóre until it is picked by hand.
+    if (!gapTouched) setGap(suggestedGap(topic, n));
+  }
 
   useEffect(() => {
     firstRef.current?.focus();
@@ -99,7 +134,8 @@ export function SessionSheet({
     setError(null);
     setSaving(true);
     setMethod(m);
-    const message = await onSave({ method: m, score: s, date, advanceGap: advanceGap && canAdvance });
+    const note = reflectionOn && s <= REFLECTION_MAX_SCORE ? reflectionNote(mistakes, next) : "";
+    const message = await onSave({ method: m, score: s, date, gap: effectiveGap, note });
     setSaving(false);
     if (message) setError(message);
   }
@@ -122,6 +158,30 @@ export function SessionSheet({
             ×
           </button>
         </header>
+
+        {promptOn && configured && (
+          <div className="sheet-prompt">
+            <p>
+              <span className="sheet-prompt-label">Otázka na propojení</span>
+              {prompt}
+            </p>
+            <div className="sheet-prompt-actions">
+              <button type="button" className="link-button" onClick={() => setPromptTurn((n) => n + 1)}>
+                Jiná
+              </button>
+              <button type="button" className="link-button" onClick={() => setPromptOn(false)}>
+                Skrýt
+              </button>
+            </div>
+          </div>
+        )}
+
+        {lastNext && configured && (
+          <p className="sheet-last-next">
+            <span className="sheet-prompt-label">Poznámka z minula</span>
+            {lastNext}
+          </p>
+        )}
 
         {!configured ? (
           <div className="error" role="alert">
@@ -168,7 +228,7 @@ export function SessionSheet({
                     aria-checked={score === n}
                     aria-label={`${n}, ${SCORE_HINT[n]}`}
                     className={`score score-${n}${score === n ? " score-on" : ""}`}
-                    onClick={() => setScore(n)}
+                    onClick={() => pickScore(n)}
                     disabled={saving}
                   >
                     {n}
@@ -176,31 +236,81 @@ export function SessionSheet({
                 ))}
               </div>
               <p className="sheet-hint">1 katastrofa, 5 jistý</p>
-              {score !== null && score <= LOW_SCORE && <p className="sheet-tip">Zkus příště jinou metodu.</p>}
+              {tip && <p className="sheet-tip">{tip}</p>}
             </fieldset>
 
-            <div className="sheet-row">
-              <label className="sheet-date">
-                Datum
-                <input type="date" value={date} max={today} onChange={(e) => setDate(e.target.value)} disabled={saving} />
-              </label>
-              <label className={`sheet-toggle${canAdvance ? "" : " sheet-toggle-off"}`}>
+            {showReflection && reflectionOn && (
+              <fieldset className="sheet-field sheet-reflection">
+                <legend>
+                  Co nešlo? <span className="sheet-hint">nepovinné</span>
+                  <button type="button" className="link-button sheet-legend-action" onClick={() => setReflectionOn(false)}>
+                    Nezobrazovat
+                  </button>
+                </legend>
+                <div className="segmented" role="group" aria-label="Co nešlo">
+                  {MISTAKES.map((m) => {
+                    const on = mistakes.includes(m.key);
+                    return (
+                      <button
+                        key={m.key}
+                        type="button"
+                        aria-pressed={on}
+                        className={`seg seg-small${on ? " seg-on" : ""}`}
+                        onClick={() => setMistakes((list) => (on ? list.filter((k) => k !== m.key) : [...list, m.key]))}
+                        disabled={saving}
+                      >
+                        {m.label}
+                      </button>
+                    );
+                  })}
+                </div>
                 <input
-                  type="checkbox"
-                  checked={advanceGap && canAdvance}
-                  onChange={(e) => setAdvanceGap(e.target.checked)}
-                  disabled={saving || !canAdvance}
+                  type="text"
+                  className="sheet-input"
+                  placeholder="Příště zkusím…"
+                  maxLength={NEXT_MAX}
+                  value={next}
+                  onChange={(e) => setNext(e.target.value)}
+                  disabled={saving}
                 />
-                Posunout gap
-              </label>
-            </div>
-            <p className="sheet-hint sheet-effect">
-              {!canAdvance
-                ? "Hotovo už nejde posunout, uloží se jen trénink."
-                : preview
-                  ? `Hotovo ${topic.hotovo ?? "Neučeno"} na ${preview.patch.hotovo}${preview.termin ? `, další opakování ${formatDate(preview.termin, today)}` : "."}`
-                  : "Jen zápis do Tréninků, Hotovo zůstane."}
-            </p>
+              </fieldset>
+            )}
+
+            <label className="sheet-date">
+              Datum
+              <input type="date" value={date} max={today} onChange={(e) => setDate(e.target.value)} disabled={saving} />
+            </label>
+
+            <fieldset className="sheet-field">
+              <legend>Interval</legend>
+              {gapModes.length > 1 && (
+                <div className="segmented" role="radiogroup" aria-label="Interval">
+                  {gapModes.map((g) => (
+                    <button
+                      key={g}
+                      type="button"
+                      role="radio"
+                      aria-checked={effectiveGap === g}
+                      className={`seg seg-small${effectiveGap === g ? " seg-on" : ""}`}
+                      onClick={() => {
+                        setGap(g);
+                        setGapTouched(true);
+                      }}
+                      disabled={saving}
+                    >
+                      {GAP_LABEL[g]}
+                    </button>
+                  ))}
+                </div>
+              )}
+              <p className="sheet-hint">
+                {!canAdvance
+                  ? "Hotovo už nejde posunout, uloží se jen trénink."
+                  : !preview
+                    ? "Jen zápis do Tréninků, Hotovo zůstane."
+                    : `${preview.patch.hotovo === (topic.hotovo ?? "Neučeno") ? `Hotovo zůstane ${preview.patch.hotovo}` : `Hotovo ${topic.hotovo ?? "Neučeno"} na ${preview.patch.hotovo}`}${preview.termin ? `, další opakování ${formatDate(preview.termin, today)}` : "."}`}
+              </p>
+            </fieldset>
 
             {error && (
               <p className="sheet-error" role="alert">
@@ -228,6 +338,21 @@ export function SessionSheet({
               </a>
             )}
 
+            {(!promptOn || (showReflection && !reflectionOn)) && (
+              <p className="sheet-hint sheet-restore">
+                {!promptOn && (
+                  <button type="button" className="link-button" onClick={() => setPromptOn(true)}>
+                    Zobrazit otázku na propojení
+                  </button>
+                )}
+                {showReflection && !reflectionOn && (
+                  <button type="button" className="link-button" onClick={() => setReflectionOn(true)}>
+                    Zapnout reflexi
+                  </button>
+                )}
+              </p>
+            )}
+
             <section className="sheet-history">
               <h3 className="sub-title">Historie</h3>
               {history.status === "loading" && <p className="sheet-hint">Načítám…</p>}
@@ -241,6 +366,7 @@ export function SessionSheet({
                       <span>{s.method ? METHOD_LABEL[s.method] : "?"}</span>
                       {s.score !== null && <span className={`chip chip-score chip-score-${s.score}`}>Skóre {s.score}</span>}
                       {s.advancedGap && <span className="history-gap">gap posunut</span>}
+                      {s.note && <span className="history-note">{s.note}</span>}
                     </li>
                   ))}
                 </ul>

@@ -3,6 +3,9 @@ import type { Topic } from "../types";
 import { afterHotovoClick } from "./hotovo";
 import {
   buildSessionRow,
+  isAdvance,
+  sessionNote,
+  suggestedGap,
   defaultAdvanceGap,
   lastSessionByTopic,
   METHODS,
@@ -49,21 +52,21 @@ describe("defaultAdvanceGap", () => {
 });
 
 describe("sessionPatch", () => {
-  it("Posunout gap on = exactly the Fáze 2 Hotovo advance", () => {
-    expect(sessionPatch(topic, { advanceGap: true, date: TODAY })).toEqual(afterHotovoClick({ ...topic, today: TODAY }));
-    expect(sessionPatch(topic, { advanceGap: true, date: TODAY })?.patch).toEqual({ hotovo: "5 dní", posledni: TODAY });
+  it("Posunout = exactly the Fáze 2 Hotovo advance", () => {
+    expect(sessionPatch(topic, { gap: "advance", date: TODAY })).toEqual(afterHotovoClick({ ...topic, today: TODAY }));
+    expect(sessionPatch(topic, { gap: "advance", date: TODAY })?.patch).toEqual({ hotovo: "5 dní", posledni: TODAY });
   });
   it("uses the session day as Poslední opakování when back-dated", () => {
-    expect(sessionPatch(topic, { advanceGap: true, date: "2026-10-25" })).toEqual({
+    expect(sessionPatch(topic, { gap: "advance", date: "2026-10-25" })).toEqual({
       patch: { hotovo: "5 dní", posledni: "2026-10-25" },
       termin: "2026-11-06",
     });
   });
-  it("Posunout gap off = no change to Hotovo / Poslední", () => {
-    expect(sessionPatch(topic, { advanceGap: false, date: TODAY })).toBeNull();
+  it("Jen zápis = no change to Hotovo / Poslední", () => {
+    expect(sessionPatch(topic, { gap: "none", date: TODAY })).toBeNull();
   });
   it("cannot advance měsíc", () => {
-    expect(sessionPatch({ ...topic, hotovo: "měsíc" }, { advanceGap: true, date: TODAY })).toBeNull();
+    expect(sessionPatch({ ...topic, hotovo: "měsíc" }, { gap: "advance", date: TODAY })).toBeNull();
   });
 });
 
@@ -71,7 +74,7 @@ describe("parseSessionInput", () => {
   it("defaults the date to today", () => {
     expect(parseSessionInput({ method: "flashcards", score: 3, advanceGap: true }, TODAY)).toEqual({
       ok: true,
-      input: { method: "flashcards", score: 3, date: TODAY, advanceGap: true },
+      input: { method: "flashcards", score: 3, date: TODAY, gap: "advance", note: "" },
     });
   });
   it.each([
@@ -79,14 +82,82 @@ describe("parseSessionInput", () => {
     [{ method: "flashcards", score: 0, advanceGap: true }, "Skóre musí být 1 až 5"],
     [{ method: "flashcards", score: 3, date: "2026-10-27", advanceGap: true }, "Datum tréninku nemůže být v budoucnu"],
     [{ method: "flashcards", score: 3, date: "26. 10.", advanceGap: true }, "Neplatné datum"],
-    [{ method: "flashcards", score: 3 }, "Chybí volba Posunout gap"],
+    [{ method: "flashcards", score: 3 }, "Chybí volba intervalu"],
+    [{ method: "flashcards", score: 3, gap: "skip" }, "Chybí volba intervalu"],
+    [{ method: "flashcards", score: 3, gap: "none", note: 5 }, "Neplatná poznámka"],
     [null, "Neplatná data tréninku"],
   ])("%o is rejected: %s", (body, error) => {
     expect(parseSessionInput(body, TODAY)).toEqual({ ok: false, error });
   });
 });
 
+describe("Fáze 10: interval from skóre", () => {
+  const due = { ...topic, dueState: "today" as const };
+  it("suggestedGap: 4 to 5 advance, 3 repeat, 1 to 2 reset, no skóre yet advance", () => {
+    expect(suggestedGap(due, null)).toBe("advance");
+    expect(suggestedGap(due, 5)).toBe("advance");
+    expect(suggestedGap(due, 4)).toBe("advance");
+    expect(suggestedGap(due, 3)).toBe("repeat");
+    expect(suggestedGap(due, 2)).toBe("reset");
+    expect(suggestedGap(due, 1)).toBe("reset");
+  });
+  it("suggestedGap: extra practice and finished topics stay log only", () => {
+    expect(suggestedGap({ ...topic, dueState: "upcoming" }, 1)).toBe("none");
+    expect(suggestedGap({ ...topic, dueState: "done", hotovo: "měsíc" }, 5)).toBe("none");
+  });
+  it("repeat keeps Hotovo, Poslední = session day, same gap from there", () => {
+    // Hotovo 2 dny: the next gap is 5 days.
+    expect(sessionPatch(topic, { gap: "repeat", date: TODAY })).toEqual({
+      patch: { hotovo: "2 dny", posledni: TODAY },
+      termin: "2026-10-31",
+    });
+  });
+  it("reset goes back to večer: next in 2 days", () => {
+    expect(sessionPatch({ ...topic, hotovo: "12 dní" }, { gap: "reset", date: TODAY })).toEqual({
+      patch: { hotovo: "večer", posledni: TODAY },
+      termin: "2026-10-28",
+    });
+  });
+  it("first retrieval (Neučeno with Naučeno): repeat and reset are the advance to večer", () => {
+    const first = { ...topic, hotovo: "Neučeno" as const, posledni: null };
+    const advance = sessionPatch(first, { gap: "advance", date: TODAY });
+    expect(advance?.patch.hotovo).toBe("večer");
+    expect(sessionPatch(first, { gap: "repeat", date: TODAY })).toEqual(advance);
+    expect(sessionPatch(first, { gap: "reset", date: TODAY })).toEqual(advance);
+  });
+  it("isAdvance only for a real step forward", () => {
+    expect(isAdvance(topic, sessionPatch(topic, { gap: "advance", date: TODAY }))).toBe(true);
+    expect(isAdvance(topic, sessionPatch(topic, { gap: "repeat", date: TODAY }))).toBe(false);
+    expect(isAdvance(topic, sessionPatch(topic, { gap: "reset", date: TODAY }))).toBe(false);
+    expect(isAdvance(topic, null)).toBe(false);
+  });
+  it("sessionNote adds the interval choice when it was not an advance", () => {
+    expect(sessionNote("", topic, sessionPatch(topic, { gap: "advance", date: TODAY }))).toBe("");
+    expect(sessionNote("", topic, null)).toBe("");
+    expect(sessionNote("Chyba: z nepozornosti", topic, sessionPatch(topic, { gap: "repeat", date: TODAY }))).toBe(
+      "Chyba: z nepozornosti · Interval: zopakovat krok",
+    );
+    expect(sessionNote(" ", topic, sessionPatch(topic, { gap: "reset", date: TODAY }))).toBe("Interval: od začátku");
+  });
+  it("parseSessionInput: gap and note, the Fáze 6 advanceGap still works", () => {
+    expect(parseSessionInput({ method: "flashcards", score: 2, gap: "reset", note: "  Příště: mapa  " }, TODAY)).toEqual({
+      ok: true,
+      input: { method: "flashcards", score: 2, date: TODAY, gap: "reset", note: "Příště: mapa" },
+    });
+    expect(parseSessionInput({ method: "flashcards", score: 2, advanceGap: false }, TODAY)).toMatchObject({
+      ok: true,
+      input: { gap: "none" },
+    });
+  });
+});
+
 describe("buildSessionRow", () => {
+  it("writes Poznámka only when there is a note", () => {
+    expect(buildSessionRow(topic, { method: "flashcards", score: 2, date: TODAY, note: "" }, false)).not.toHaveProperty("Poznámka");
+    expect(buildSessionRow(topic, { method: "flashcards", score: 2, date: TODAY, note: "Příště: mapa" }, false)).toMatchObject({
+      Poznámka: { rich_text: [{ type: "text", text: { content: "Příště: mapa" } }] },
+    });
+  });
   it("Notion properties for Tréninky: English method key, subject name, dashed page ID, Zdroj app", () => {
     expect(buildSessionRow(topic, { method: "generatedQs", score: 2, date: TODAY }, false)).toEqual({
       Název: { title: [{ type: "text", text: { content: "2026-10-26 · Generated Qs · Limity a spojitost (Bolzano, Weierstrass)" } }] },
@@ -131,6 +202,7 @@ describe("toPageId / lastSessionByTopic", () => {
       method: "flashcards",
       score,
       advancedGap: false,
+      note: null,
     });
     const a = "11111111-2222-3333-4444-555555555555";
     expect(lastSessionByTopic([s("1", a, "2026-10-26", 4), s("2", a, "2026-10-20", 1), s("3", a, "2026-10-26", 2)])).toEqual({

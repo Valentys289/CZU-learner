@@ -209,17 +209,28 @@ Each subject has a short list of preferred methods in `PREFERRED_METHODS` (`src/
 | UE | Flashcards, Jiné |
 | AJ | Quizlet, Flashcards, Generated Qs |
 
-The sheet lists the preferred methods first and preselects the first one; the other methods stay available after them, dimmed. The open subject card in Předměty shows the list as *Metody: …*. With Skóre 1 or 2 the sheet adds a short tip ("Zkus příště jinou metodu."); it does not change the gap. Quizlet stays a manual log plus the optional `Odkaz` link. The *3. Retrieval* checklist in the topic body is not the session log: Tréninky is.
+The sheet lists the preferred methods first and preselects the first one; the other methods stay available after them, dimmed. The open subject card in Předměty shows the list as *Metody: …*. Quizlet stays a manual log plus the optional `Odkaz` link. The *3. Retrieval* checklist in the topic body is not the session log: Tréninky is.
 
-### Hotovo gap rule
+### Interval from skóre (Fáze 10)
 
-| Topic | Posunout gap default | Uložit does |
-|-------|----------------------|-------------|
-| Due today or overdue | **on** | Tréninky row + the Fáze 2 Hotovo advance (`Poslední opakování` = the session day) |
-| Not due (extra practice) | off | Tréninky row only, `Hotovo` / `Poslední opakování` untouched |
-| `Hotovo` = měsíc | off, locked | Tréninky row only |
+The sheet's **Interval** follows the skóre until you pick one by hand (confidence beats the answer sheet):
 
-The toggle can be flipped either way before Uložit. The same method can be logged any number of times, on any day.
+| Skóre | Interval | Uložit does |
+|-------|----------|-------------|
+| 4 to 5 | **Posunout** | The Fáze 2 Hotovo advance (next, longer gap) |
+| 3 | **Zopakovat krok** | `Hotovo` stays, `Poslední opakování` = session day, so the same gap runs again |
+| 1 to 2 | **Od začátku** | `Hotovo` = večer, `Poslední opakování` = session day, next retrieval in 2 days |
+| any | Jen zápis | Tréninky row only, `Hotovo` / `Poslední opakování` untouched |
+
+Only a topic due today or overdue gets a suggestion; extra practice (not due) defaults to Jen zápis, `Hotovo` = měsíc is locked to it. On the first retrieval (`Hotovo` Neučeno with `Naučeno`) only Posunout and Jen zápis are offered, because the advance to večer already is the shortest gap. The plain one-tap **Hotovo** outside the sheet still always advances.
+
+### Reflexe and Otázka na propojení (Fáze 10)
+
+- **Co nešlo?** shows under skóre 1 to 3: optional chips (Nešlo si vybavit, Nechápu souvislost, Z nepozornosti, Metoda nesedí, Málo času) and one line *Příště zkusím…*. Nothing is required; Uložit works without touching it, and *Nezobrazovat* hides it for good (*Zapnout reflexi* brings it back). It is written to `Poznámka` as `Chyba: … · Příště: …`; an empty reflection writes nothing.
+- When the interval was Zopakovat krok or Od začátku, `Poznámka` also says so (`Interval: od začátku`), and `Posunul gap` stays off.
+- The newest session's *Příště* shows on top of the sheet next time as **Poznámka z minula**; Historie shows each row's Poznámka.
+- **Otázka na propojení** on top of the sheet: one higher-order question (link to another learned topic of the subject, analogy, big picture, function, own example, exam curveball). The same question all day for a topic; *Jiná* draws another, *Skrýt* hides the card.
+- Both switches are per device (localStorage, mirrored to `prefs.json` in the Mac app).
 
 ### Tréninky DB properties
 
@@ -232,11 +243,11 @@ The toggle can be flipped either way before Uložit. The same method can be logg
 | `Předmět` | select | Subject name as in Předměty |
 | `Téma` | text | Topic title at write time |
 | `Téma page ID` | text | Topic page UUID (the join key) |
-| `Posunul gap` | checkbox | Whether this save advanced Hotovo |
-| `Poznámka` | text | Not written yet (kept for later) |
+| `Posunul gap` | checkbox | Whether this save advanced Hotovo one step (not for Zopakovat krok / Od začátku) |
+| `Poznámka` | text | Fáze 10: optional reflection and the interval choice; empty when there is nothing to say |
 | `Zdroj` | select | Always `app` (`manual` for rows added by hand) |
 
-Endpoints: `POST /api/topics/{pageId}/session` with `{ method, score, date?, advanceGap }`, `GET /api/topics/{pageId}/sessions`. The server checks the topic is in one of the 6 Témata DBs, creates the row, then (with Posunout gap) patches the topic. If the topic patch fails, the new row is archived again, so `Posunul gap` never lies. **Zpět** after a session reverts the topic fields and archives the row. To try another DB in dev: `NOTION_TRENINKY_DB=<database block id>` in `.env.local`. Without a configured DB the sheet says "Chybí Tréninky DB" and offers only the old Hotovo.
+Endpoints: `POST /api/topics/{pageId}/session` with `{ method, score, date?, gap, note? }` (`gap`: `advance`, `repeat`, `reset`, `none`; the Fáze 6 `advanceGap` boolean is still accepted), `GET /api/topics/{pageId}/sessions`. The server checks the topic is in one of the 6 Témata DBs, creates the row, then (unless Jen zápis) patches the topic. If the topic patch fails, the new row is archived again, so `Posunul gap` never lies. **Zpět** after a session reverts the topic fields and archives the row. To try another DB in dev: `NOTION_TRENINKY_DB=<database block id>` in `.env.local`. Without a configured DB the sheet says "Chybí Tréninky DB" and offers only the old Hotovo.
 
 ### Planning from scores
 
@@ -345,4 +356,4 @@ macOS asks for permission with the first notification (**Vyzkoušet notifikaci**
 
 ## Out of scope
 
-Milestone editing in the app, parsing the Termíny page, Moodle/UIS/Drive scraping, snooze or skip, creating or deleting pages other than Tréninky rows, editing Fáze checklists inside topic pages, suggesting a method or changing gap lengths from skóre, Google Calendar, Quizlet/Anki sync, UIS/Moodle, auth and Vercel deploy.
+Milestone editing in the app, parsing the Termíny page, Moodle/UIS/Drive scraping, snooze or skip, creating or deleting pages other than Tréninky rows, editing Fáze checklists inside topic pages, suggesting a method from skóre, Google Calendar, Quizlet/Anki sync, UIS/Moodle, auth and Vercel deploy.
