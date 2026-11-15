@@ -2,6 +2,7 @@ import type { SubjectCode, Topic } from "../types";
 import { SUBJECTS, TRENINKY_PROP } from "../notion/config";
 import { afterHotovoClick, canMarkHotovo, nextHotovo, type ActionResult } from "./hotovo";
 import { computeTermin, isNeuceno } from "./termin";
+import { parsePlanDate, planPatch } from "./plan";
 
 /** Retrieval methods. Keys are stored in Notion (Tréninky › Metoda); labels are UI only. */
 export const METHODS = ["flashcards", "generatedQs", "brainDump", "quizlet", "other"] as const;
@@ -91,7 +92,17 @@ export type SessionWriteInput = {
   gap: GapMode;
   /** Fáze 10: optional reflection, written to Tréninky › Poznámka. Empty = nothing written. */
   note?: string;
+  /** Fáze 12: next retrieval picked by hand (YYYY-MM-DD, after today). Overrides the interval's date, keeps its step. */
+  termin?: string | null;
+  /** Fáze 12: brain dump text, written into the body of the Tréninky row. Empty = nothing written. */
+  dump?: string;
 };
+
+/** A session body after validation. */
+export type ParsedSession = Required<Omit<SessionWriteInput, "termin">> & { termin: string | null };
+
+/** Longest brain dump the app writes (Notion takes 100 blocks of 2000 characters per request). */
+export const DUMP_MAX = 20_000;
 
 /** Last session per topic, for the skóre chip on rows. */
 export type LastSession = Pick<TrainingSession, "date" | "method" | "score">;
@@ -150,7 +161,7 @@ const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 export function parseSessionInput(
   body: unknown,
   today: string,
-): { ok: true; input: Required<SessionWriteInput> } | { ok: false; error: string } {
+): { ok: true; input: ParsedSession } | { ok: false; error: string } {
   if (!body || typeof body !== "object" || Array.isArray(body)) return { ok: false, error: "Neplatná data tréninku" };
   const b = body as Record<string, unknown>;
   if (!isMethod(b.method)) return { ok: false, error: "Vyber metodu" };
@@ -166,7 +177,16 @@ export function parseSessionInput(
   if (!gap) return { ok: false, error: "Chybí volba intervalu" };
   if (b.note !== undefined && b.note !== null && typeof b.note !== "string") return { ok: false, error: "Neplatná poznámka" };
   const note = typeof b.note === "string" ? b.note.trim().slice(0, NOTE_MAX) : "";
-  return { ok: true, input: { method: b.method, score, date, gap, note } };
+  let termin: string | null = null;
+  if (b.termin !== undefined && b.termin !== null && b.termin !== "") {
+    const plan = parsePlanDate(b.termin, today);
+    if (!plan.ok) return plan;
+    termin = plan.date;
+  }
+  if (b.dump !== undefined && b.dump !== null && typeof b.dump !== "string") return { ok: false, error: "Neplatný brain dump" };
+  const dump = typeof b.dump === "string" ? b.dump.trim() : "";
+  if (dump.length > DUMP_MAX) return { ok: false, error: `Brain dump je moc dlouhý (nejvíc ${DUMP_MAX} znaků)` };
+  return { ok: true, input: { method: b.method, score, date, gap, note, termin, dump } };
 }
 
 /** Longest Poznámka the app writes (Notion's rich text limit is 2000). */
@@ -180,8 +200,17 @@ export const NOTE_MAX = 500;
  */
 export function sessionPatch(
   topic: Pick<Topic, "hotovo" | "nauceno" | "posledni">,
-  input: Pick<SessionWriteInput, "gap"> & { date: string },
+  input: Pick<SessionWriteInput, "gap" | "termin"> & { date: string },
 ): ActionResult | null {
+  const base = gapPatch(topic, input);
+  if (!input.termin) return base;
+  // Fáze 12: the date picked by hand wins; the step is the one the interval choice left.
+  const planned = planPatch({ ...topic, ...base?.patch }, input.termin);
+  if (!planned) return base;
+  return { patch: { ...base?.patch, ...planned.patch }, termin: planned.termin };
+}
+
+function gapPatch(topic: Pick<Topic, "hotovo" | "nauceno" | "posledni">, input: Pick<SessionWriteInput, "gap"> & { date: string }): ActionResult | null {
   if (input.gap === "none" || !canMarkHotovo(topic)) return null;
   const advance = afterHotovoClick({ ...topic, today: input.date });
   if (input.gap === "advance" || isNeuceno(topic) || !topic.hotovo) return advance;
@@ -205,12 +234,19 @@ export function isAdvance(topic: Pick<Topic, "hotovo">, result: ActionResult | n
  * Poznámka for the Tréninky row: the reflection, plus the interval choice when it
  * was not an advance (so Notion shows why the gap did not move). Empty = none.
  */
-export function sessionNote(note: string, topic: Pick<Topic, "hotovo">, result: ActionResult | null): string {
+export function sessionNote(
+  note: string,
+  topic: Pick<Topic, "hotovo">,
+  result: ActionResult | null,
+  extra: { termin?: string | null; dump?: string } = {},
+): string {
   const parts = [note.trim()];
-  if (result && !isAdvance(topic, result)) {
+  if (result && !isAdvance(topic, result) && !extra.termin) {
     parts.push(result.patch.hotovo === topic.hotovo ? "Interval: zopakovat krok" : "Interval: od začátku");
   }
-  return parts.filter(Boolean).join(" · ").slice(0, NOTE_MAX + 40);
+  if (extra.termin && result) parts.push(`Další opakování ručně na ${extra.termin}`);
+  if (extra.dump) parts.push(`Brain dump: ${dumpPreview(extra.dump)}`);
+  return parts.filter(Boolean).join(" · ").slice(0, NOTE_MAX + 200);
 }
 
 /** Notion properties for a new Tréninky row. `advancedGap` is what actually happened to the topic. */
@@ -246,4 +282,30 @@ export function lastSessionByTopic(sessions: TrainingSession[]): Record<string, 
     if (!prev || (s.date ?? "") > (prev.date ?? "")) out[key] = { date: s.date, method: s.method, score: s.score };
   }
   return out;
+}
+
+/** First words of a brain dump on one line, for Poznámka (the full text is in the row's body). */
+export function dumpPreview(dump: string, max = 120): string {
+  const line = dump.replace(/\s+/g, " ").trim();
+  return line.length > max ? `${line.slice(0, max - 1).trimEnd()}…` : line;
+}
+
+/**
+ * Body of a Tréninky row with a brain dump: a "Brain dump" heading, then one
+ * paragraph per line block (blank lines split), each cut into 2000-character pieces
+ * (Notion's rich text limit), at most 99 paragraphs.
+ */
+export function dumpBlocks(dump: string): Record<string, unknown>[] {
+  const text = dump.trim();
+  if (!text) return [];
+  const paragraphs: string[] = [];
+  for (const chunk of text.split(/\n\s*\n/)) {
+    const t = chunk.trim();
+    for (let i = 0; i < t.length; i += 2000) paragraphs.push(t.slice(i, i + 2000));
+  }
+  const rich = (content: string) => [{ type: "text", text: { content } }];
+  return [
+    { object: "block", type: "heading_3", heading_3: { rich_text: rich("Brain dump") } },
+    ...paragraphs.slice(0, 99).map((p) => ({ object: "block", type: "paragraph", paragraph: { rich_text: rich(p) } })),
+  ];
 }

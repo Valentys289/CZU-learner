@@ -21,6 +21,8 @@ import { MISTAKES, REFLECTION_MAX_SCORE, reflectionNote, scoreTip, NEXT_MAX } fr
 import { hashSeed, pickPrompt } from "../lib/prompts";
 import { SubjectBadge } from "./SubjectBadge";
 import { useStoredFlag } from "./useStoredFlag";
+import { BrainDumpField, clearDumpDraft, NextDatePicker, useDumpDraft } from "./PlanControls";
+import { canPlan } from "../lib/plan";
 
 type History = { status: "loading" } | { status: "ready"; sessions: TrainingSession[] } | { status: "error"; message: string };
 
@@ -52,6 +54,7 @@ export function SessionSheet({
   onClose,
   onSave,
   onPlainHotovo,
+  onPlan,
 }: {
   topic: Topic;
   today: string;
@@ -64,6 +67,8 @@ export function SessionSheet({
   /** Resolves to an error message, or null when saved. */
   onSave: (input: SessionWriteInput) => Promise<string | null>;
   onPlainHotovo: () => void;
+  /** Fáze 12: only move the next retrieval, no session. Resolves to an error or null. */
+  onPlan?: (termin: string) => Promise<string | null>;
 }) {
   const methods = orderedMethods(topic.subject);
   const preferred = preferredMethodsFor(topic.subject);
@@ -84,6 +89,8 @@ export function SessionSheet({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [history, setHistory] = useState<History>({ status: "loading" });
+  const [termin, setTermin] = useState("");
+  const [dump, setDump] = useDumpDraft(topic.id);
   const titleId = useId();
   const firstRef = useRef<HTMLButtonElement>(null);
 
@@ -91,7 +98,8 @@ export function SessionSheet({
   // First retrieval (Neučeno with Naučeno): repeat and reset are the same as advance, so only offer advance.
   const gapModes: GapMode[] = !canAdvance ? ["none"] : isNeuceno(topic) ? ["advance", "none"] : ["advance", "repeat", "reset", "none"];
   const effectiveGap: GapMode = gapModes.includes(gap) ? gap : canAdvance ? "advance" : "none";
-  const preview = sessionPatch(topic, { gap: effectiveGap, date: date || today });
+  const preview = sessionPatch(topic, { gap: effectiveGap, date: date || today, termin: termin || null });
+  const plannable = canPlan(topic);
   // The "Příště: …" part of the newest session's Poznámka, shown as a reminder on top.
   const lastNext =
     history.status === "ready" ? (/Příště: (.+?)(?: · |$)/.exec(history.sessions[0]?.note ?? "")?.[1] ?? null) : null;
@@ -135,7 +143,19 @@ export function SessionSheet({
     setSaving(true);
     setMethod(m);
     const note = reflectionOn && s <= REFLECTION_MAX_SCORE ? reflectionNote(mistakes, next) : "";
-    const message = await onSave({ method: m, score: s, date, gap: effectiveGap, note });
+    const dumpText = m === "brainDump" ? dump : "";
+    const message = await onSave({ method: m, score: s, date, gap: effectiveGap, note, termin: termin || null, dump: dumpText });
+    setSaving(false);
+    if (message) setError(message);
+    else if (dumpText) clearDumpDraft(topic.id);
+  }
+
+  /** Fáze 12: Jen přeplánovat, no session. */
+  async function planOnly() {
+    if (!onPlan || !termin) return;
+    setError(null);
+    setSaving(true);
+    const message = await onPlan(termin);
     setSaving(false);
     if (message) setError(message);
   }
@@ -213,6 +233,7 @@ export function SessionSheet({
                   </button>
                 ))}
               </div>
+              {method === "brainDump" && <BrainDumpField value={dump} onChange={setDump} disabled={saving} />}
             </fieldset>
 
             <fieldset className="sheet-field">
@@ -303,8 +324,16 @@ export function SessionSheet({
                   ))}
                 </div>
               )}
+              {plannable && (
+                <>
+                  <p className="sheet-hint">Další opakování ručně (nepovinné):</p>
+                  <NextDatePicker today={today} value={termin} onChange={setTermin} disabled={saving} />
+                </>
+              )}
               <p className="sheet-hint">
-                {!canAdvance
+                {termin && preview
+                  ? `${preview.patch.hotovo === (topic.hotovo ?? "Neučeno") ? `Hotovo zůstane ${preview.patch.hotovo}` : `Hotovo ${topic.hotovo ?? "Neučeno"} na ${preview.patch.hotovo}`}, další opakování ${preview.termin ? formatDate(preview.termin, today) : "?"}.`
+                  : !canAdvance
                   ? "Hotovo už nejde posunout, uloží se jen trénink."
                   : !preview
                     ? "Jen zápis do Tréninků, Hotovo zůstane."
@@ -332,6 +361,11 @@ export function SessionSheet({
                 Hotovo z Quizletu
               </button>
             </div>
+            {onPlan && plannable && termin && (
+              <button type="button" className="link-button" disabled={saving} onClick={() => void planOnly()}>
+                Jen přeplánovat na {formatDate(termin, today)} (bez tréninku)
+              </button>
+            )}
             {isQuizletLink(topic.odkaz) && (
               <a className="sheet-link" href={topic.odkaz!} target="_blank" rel="noreferrer">
                 Otevřít v Quizletu

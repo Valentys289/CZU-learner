@@ -11,12 +11,17 @@ import {
   SCORES,
   sessionPatch,
   suggestedGap,
+  type GapMode,
   type LastSession,
   type RetrievalMethod,
   type SessionWriteInput,
 } from "../lib/sessions";
 import { SubjectBadge } from "./SubjectBadge";
 import { useStoredFlag } from "./useStoredFlag";
+import { BrainDumpField, clearDumpDraft, NextDatePicker, useDumpDraft } from "./PlanControls";
+import { canMarkHotovo } from "../lib/hotovo";
+import { isNeuceno } from "../lib/termin";
+import { canPlan } from "../lib/plan";
 
 const SCORE_HINT: Record<number, string> = { 1: "katastrofa", 2: "slabé", 3: "půl na půl", 4: "dobré", 5: "jistý" };
 
@@ -59,6 +64,10 @@ export function BlockRunner({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [promptTurn, setPromptTurn] = useState(0);
+  // Fáze 12: interval and next date by hand (hidden behind "Změnit plán"), brain dump text.
+  const [planOpen, setPlanOpen] = useState(false);
+  const [gapPick, setGapPick] = useState<GapMode | null>(null);
+  const [termin, setTermin] = useState("");
   const [reflectionOn] = useStoredFlag("trenink.reflexe", true);
   const [promptOn] = useStoredFlag("trenink.otazka", true);
   const startedAt = useRef(Date.now());
@@ -72,8 +81,14 @@ export function BlockRunner({
     [topic, topics],
   );
   const prompt = topic ? pickPrompt(others, hashSeed(`${topic.id}:${today}`) + promptTurn) : "";
-  const gap = topic ? suggestedGap(topic, score) : "none";
-  const preview = topic && score !== null ? sessionPatch(topic, { gap, date: today }) : null;
+  const [dump, setDump] = useDumpDraft(topic?.id);
+  const canAdvance = topic ? canMarkHotovo(topic) : false;
+  const gapModes: GapMode[] = !topic || !canAdvance ? ["none"] : isNeuceno(topic) ? ["advance", "none"] : ["advance", "repeat", "reset", "none"];
+  const suggested = topic ? suggestedGap(topic, score) : "none";
+  const gap: GapMode = gapPick && gapModes.includes(gapPick) ? gapPick : suggested;
+  const preview = topic && score !== null ? sessionPatch(topic, { gap, date: today, termin: termin || null }) : null;
+  const isDump = activeMethod === "brainDump";
+  const isExtra = topic ? topic.dueState !== "overdue" && topic.dueState !== "today" : false;
   const showReflection = reflectionOn && score !== null && score <= REFLECTION_MAX_SCORE;
 
   function advance() {
@@ -84,6 +99,9 @@ export function BlockRunner({
     setNext("");
     setError(null);
     setPromptTurn(0);
+    setPlanOpen(false);
+    setGapPick(null);
+    setTermin("");
   }
 
   // A topic that disappeared (deleted in Notion, list reloaded) is passed over.
@@ -96,9 +114,18 @@ export function BlockRunner({
     setSaving(true);
     setError(null);
     const note = showReflection ? reflectionNote(mistakes, next) : "";
-    const message = await onSave(topic, { method: activeMethod, score, date: today, gap, note });
+    const message = await onSave(topic, {
+      method: activeMethod,
+      score,
+      date: today,
+      gap,
+      note,
+      termin: termin || null,
+      dump: isDump ? dump : "",
+    });
     setSaving(false);
     if (message) return setError(message);
+    if (isDump) clearDumpDraft(topic.id);
     setResults((r) => [...r, { id: topic.id, title: topic.title, score }]);
     advance();
   }
@@ -115,9 +142,17 @@ export function BlockRunner({
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const typing = e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement;
+      const inTextarea = e.target instanceof HTMLTextAreaElement;
+      // In the brain dump field Esc only leaves the field and Enter is a new line (Cmd+Enter saves).
+      if (e.key === "Escape" && inTextarea) return (e.target as HTMLElement).blur();
       if (e.key === "Escape" && !saving) return onClose();
-      if (done || e.metaKey || e.ctrlKey || e.altKey) return;
-      if (e.key === "Enter") {
+      if (done) return;
+      if (e.key === "Enter" && (e.metaKey || e.ctrlKey) && !e.altKey) {
+        e.preventDefault();
+        return void save();
+      }
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      if (e.key === "Enter" && !inTextarea) {
         e.preventDefault();
         return void save();
       }
@@ -202,6 +237,11 @@ export function BlockRunner({
         </div>
         <p className="block-meta">
           <span className="chip">{topic.hotovo ?? "Neučeno"}</span>
+          {isExtra && (
+            <span className="chip chip-stav" title="Naučené téma, které ještě není na řadě: opakování navíc">
+              Navíc
+            </span>
+          )}
           {last?.score != null && (
             <span className={`chip chip-score chip-score-${last.score}`}>
               Minule {last.score}
@@ -227,6 +267,7 @@ export function BlockRunner({
               </button>
             ))}
           </div>
+          {isDump && <BrainDumpField value={dump} onChange={setDump} disabled={saving} />}
           {last?.method && activeMethod !== last.method && method === null && (
             <p className="sheet-hint">Jiná metoda než minule, ať to vidíš z jiného úhlu.</p>
           )}
@@ -272,9 +313,37 @@ export function BlockRunner({
             <p className="sheet-hint">
               {scoreTip(score) ? `${scoreTip(score)} ` : ""}
               {preview
-                ? `${GAP_LABEL[gap]}${preview.termin ? `, další opakování ${formatDate(preview.termin, today)}` : "."}`
-                : "Jen zápis do Tréninků, interval se nemění."}
+                ? `${termin ? "Vlastní datum" : GAP_LABEL[gap]}${preview.termin ? `, další opakování ${formatDate(preview.termin, today)}` : "."}`
+                : "Jen zápis do Tréninků, interval se nemění."}{" "}
+              {canPlan(topic) && (
+                <button type="button" className="link-button link-inline" aria-expanded={planOpen} onClick={() => setPlanOpen((v) => !v)}>
+                  {planOpen ? "Skrýt plán" : "Změnit plán"}
+                </button>
+              )}
             </p>
+          )}
+          {score !== null && planOpen && (
+            <div className="block-plan-edit">
+              {gapModes.length > 1 && (
+                <div className="segmented" role="radiogroup" aria-label="Interval">
+                  {gapModes.map((g) => (
+                    <button
+                      key={g}
+                      type="button"
+                      role="radio"
+                      aria-checked={gap === g}
+                      className={`seg seg-small${gap === g ? " seg-on" : ""}`}
+                      onClick={() => setGapPick(g)}
+                      disabled={saving}
+                    >
+                      {GAP_LABEL[g]}
+                    </button>
+                  ))}
+                </div>
+              )}
+              <p className="sheet-hint">Další opakování ručně (nepovinné):</p>
+              <NextDatePicker today={today} value={termin} onChange={setTermin} disabled={saving} />
+            </div>
           )}
           {showReflection && (
             <div className="block-reflection">
@@ -323,7 +392,9 @@ export function BlockRunner({
             Přeskočit
           </button>
         </div>
-        <p className="block-keys">Klávesy: 1 až 5 skóre, Enter uložit, S přeskočit, Esc ukončit</p>
+        <p className="block-keys">
+          {isDump ? "Klávesy: Cmd+Enter uložit, Esc opustí pole" : "Klávesy: 1 až 5 skóre, Enter uložit, S přeskočit, Esc ukončit"}
+        </p>
       </div>
     </div>
   );

@@ -722,3 +722,31 @@ label.settings-row { justify-content: flex-start; cursor: pointer; }
   .dnes-side { grid-column: 3; grid-row: 1; display: block; position: sticky; top: 76px; }
   .dnes-side > section + section { margin-top: 20px; }
 }
+
+/* Fáze 12: block plan, next date by hand, brain dump */
+.block-plan { margin: 4px 0 8px; }
+.block-plan .link-button { margin-top: 0; }
+.block-plan-panel {
+  margin-top: 6px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.block-plan-panel .area-hint { margin: 0; }
+.block-plan-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
+.block-plan-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.block-plan-list li { display: flex; align-items: center; gap: 8px; font-size: 0.92rem; }
+.block-plan-title { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.block-plan-remove { flex: none; }
+.block-plan-edit { display: flex; flex-direction: column; gap: 8px; }
+.link-inline { margin: 0; padding: 0; font-size: inherit; }
+.plan-pick { display: flex; flex-direction: column; gap: 8px; }
+.plan-pick .sheet-date { flex-wrap: wrap; }
+.plan-pick .link-button { margin-top: 0; }
+.dump { display: flex; flex-direction: column; gap: 6px; }
+.dump-input { resize: vertical; min-height: 160px; line-height: 1.45; }
+.dump-count { align-self: flex-end; }
