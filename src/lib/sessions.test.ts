@@ -74,7 +74,7 @@ describe("parseSessionInput", () => {
   it("defaults the date to today", () => {
     expect(parseSessionInput({ method: "flashcards", score: 3, advanceGap: true }, TODAY)).toEqual({
       ok: true,
-      input: { method: "flashcards", score: 3, date: TODAY, gap: "advance", note: "" },
+      input: { method: "flashcards", score: 3, date: TODAY, gap: "advance", note: "", termin: null, dump: "" },
     });
   });
   it.each([
@@ -142,7 +142,7 @@ describe("Fáze 10: interval from skóre", () => {
   it("parseSessionInput: gap and note, the Fáze 6 advanceGap still works", () => {
     expect(parseSessionInput({ method: "flashcards", score: 2, gap: "reset", note: "  Příště: mapa  " }, TODAY)).toEqual({
       ok: true,
-      input: { method: "flashcards", score: 2, date: TODAY, gap: "reset", note: "Příště: mapa" },
+      input: { method: "flashcards", score: 2, date: TODAY, gap: "reset", note: "Příště: mapa", termin: null, dump: "" },
     });
     expect(parseSessionInput({ method: "flashcards", score: 2, advanceGap: false }, TODAY)).toMatchObject({
       ok: true,

@@ -5,6 +5,7 @@ import {
   fetchChecklist,
   fetchSessions,
   logSession,
+  planTopic,
   NotionError,
   setChecklistItem,
   undoSession,
@@ -51,6 +52,7 @@ function readJson(req: IncomingMessage): Promise<unknown> {
  *   POST /api/topics/{pageId}/ukol        Fáze 9 B: úkol Hotovo (Hotovo = měsíc + Stav = Stable)
  *   POST /api/topics/{pageId}/session     Fáze 6 + 10: { method, score, date?, gap, note? } → Tréninky row (+ Hotovo)
  *   GET  /api/topics/{pageId}/sessions    Fáze 6: last 10 Tréninky rows of the topic
+ *   POST /api/topics/{pageId}/plan        Fáze 12: { termin } → next retrieval on that day (Poslední / Naučeno)
  *   POST /api/topics/{pageId}/undo        { previous?, written?, sessionId? }: revert the last write
  *   GET  /api/topics/{pageId}/checklist   Fáze 7 B: to_do items under the Fáze sections of the page body
  *   POST /api/topics/{pageId}/checklist/{blockId}  { checked }: tick / untick one of them
@@ -72,7 +74,7 @@ export function createApiHandler(
     res.setHeader("Content-Type", "application/json; charset=utf-8");
     res.setHeader("Cache-Control", "no-store");
     const path = subpath.split("?")[0];
-    const write = /^\/([0-9a-fA-F-]{32,36})\/(hotovo|nauceno|ukol|undo|session)$/.exec(path);
+    const write = /^\/([0-9a-fA-F-]{32,36})\/(hotovo|nauceno|ukol|undo|session|plan)$/.exec(path);
     const history = /^\/([0-9a-fA-F-]{32,36})\/sessions$/.exec(path);
     const checklist = /^\/([0-9a-fA-F-]{32,36})\/checklist$/.exec(path);
     const tick = /^\/([0-9a-fA-F-]{32,36})\/checklist\/([0-9a-fA-F-]{32,36})$/.exec(path);
@@ -92,6 +94,10 @@ export function createApiHandler(
       }
       if (write && write[2] === "session") {
         return send(res, 200, await logSession(token, treninkyDatabaseId, write[1], await readJson(req), timeZone));
+      }
+      if (write && write[2] === "plan") {
+        const { topic, previous, written } = await planTopic(token, write[1], await readJson(req), timeZone);
+        return send(res, 200, { topic, undo: { previous, written } });
       }
       if (write && write[2] === "undo") {
         const body = (await readJson(req)) as { previous?: unknown; written?: unknown; sessionId?: unknown } | null;

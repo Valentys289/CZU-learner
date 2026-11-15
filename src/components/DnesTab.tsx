@@ -1,8 +1,8 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import type { Topic } from "../types";
 import type { MilnikyResponse } from "../timeline/types";
 import { buildTimeline } from "../timeline/milestones";
-import { dueBlock, examPrep, weekAhead, learnedThisMonth, recentlyLearned, reviewDay } from "../lib/block";
+import { dailyBlock, DEFAULT_EXTRA, EXTRA_OPTIONS, examPrep, weekAhead, learnedThisMonth, recentlyLearned, reviewDay } from "../lib/block";
 import type { LastSession } from "../lib/sessions";
 import { pluralDny, pluralTemat, relativeLabel } from "../lib/format";
 import { SubjectBadge } from "./SubjectBadge";
@@ -16,6 +16,7 @@ import { SUBJECTS } from "../notion/config";
 import { TopicRow } from "./TopicRow";
 import { TaskRow } from "./TaskRow";
 import { useHiddenSubjects } from "./useHiddenSubjects";
+import { useStoredNumber } from "./useStoredFlag";
 
 /**
  * Dnes: due retrieval (Po termínu, Dnes) and, separately, encoding work with a
@@ -42,7 +43,14 @@ export function DnesTab({
 }) {
   const actions = useTopicActions();
   // Fáze 11: guided block over today's retrieval, Před testem from Milníky, weekly / monthly review.
-  const block = dueBlock(topics);
+  // Fáze 12: the block also brings back learned topics that are not due (spaced retrieval),
+  // and can be adjusted before it starts (how many extras, leave a topic out).
+  const [extra, setExtra] = useStoredNumber("blok.navic", DEFAULT_EXTRA, EXTRA_OPTIONS);
+  const [excluded, setExcluded] = useState<ReadonlySet<string>>(new Set());
+  const [editing, setEditing] = useState(false);
+  const plan = useMemo(() => dailyBlock(topics, last, today, extra, excluded), [topics, last, today, extra, excluded]);
+  const block = plan.all;
+  const extraIds = new Set(plan.extras.map((t) => t.id));
   const milestones = useMemo(() => (milniky ? buildTimeline(topics, milniky, today).milestones : []), [topics, milniky, today]);
   const preps = useMemo(() => examPrep(milestones, topics, last, today), [milestones, topics, last, today]);
   const ahead = weekAhead(topics, milestones, today);
@@ -77,9 +85,72 @@ export function DnesTab({
         <button type="button" className="block-start" onClick={() => actions.startBlock("Dnešní blok", block)}>
           <span className="block-start-main">Začít blok</span>
           <span className="block-start-sub">
-            {pluralTemat(block.length)} napříč předměty, jedno po druhém
+            {plan.due.length > 0 && plan.extras.length > 0
+              ? `${plan.due.length} k opakování + ${plan.extras.length} naučených navíc, napříč předměty`
+              : plan.due.length > 0
+                ? `${pluralTemat(plan.due.length)} k opakování, napříč předměty`
+                : `${pluralTemat(plan.extras.length)} naučených navíc, napříč předměty`}
           </span>
         </button>
+      )}
+      {actions && (
+        <div className="block-plan">
+          <button type="button" className="link-button" aria-expanded={editing} onClick={() => setEditing((v) => !v)}>
+            {editing ? "Hotovo s úpravou bloku" : "Upravit blok"}
+          </button>
+          {editing && (
+            <div className="block-plan-panel">
+              <div className="block-plan-row">
+                <span className="area-hint">Naučená témata navíc</span>
+                <div className="segmented" role="radiogroup" aria-label="Naučená témata navíc">
+                  {EXTRA_OPTIONS.map((n) => (
+                    <button
+                      key={n}
+                      type="button"
+                      role="radio"
+                      aria-checked={extra === n}
+                      className={`seg seg-small${extra === n ? " seg-on" : ""}`}
+                      onClick={() => setExtra(n)}
+                    >
+                      {n === 0 ? "Žádná" : n}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <p className="area-hint">
+                Navíc jdou naučená témata, která nejsou na řadě: nejdřív ta se slabým skóre, pak ta nejdéle neopakovaná. Interval se jim
+                nemění, pokud ho v bloku sám nezměníš.
+              </p>
+              {block.length === 0 ? (
+                <p className="empty small">Blok je prázdný</p>
+              ) : (
+                <ol className="block-plan-list">
+                  {block.map((t) => (
+                    <li key={t.id}>
+                      <SubjectBadge code={t.subject} />
+                      <span className="block-plan-title">{t.title}</span>
+                      <span className="chip">{extraIds.has(t.id) ? "navíc" : t.dueState === "overdue" ? "po termínu" : "dnes"}</span>
+                      <button
+                        type="button"
+                        className="sheet-close block-plan-remove"
+                        aria-label={`Vynechat ${t.title}`}
+                        title="Vynechat z dnešního bloku"
+                        onClick={() => setExcluded((s) => new Set(s).add(t.id))}
+                      >
+                        ×
+                      </button>
+                    </li>
+                  ))}
+                </ol>
+              )}
+              {excluded.size > 0 && (
+                <button type="button" className="link-button" onClick={() => setExcluded(new Set())}>
+                  Vrátit vynechaná ({excluded.size})
+                </button>
+              )}
+            </div>
+          )}
+        </div>
       )}
 
       {preps.map((p) => (

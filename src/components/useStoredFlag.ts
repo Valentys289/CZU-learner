@@ -53,3 +53,38 @@ export function useStoredFlag(key: string, fallback: boolean): [boolean, (v: boo
   );
   return [value, set];
 }
+
+/** A small whole-number preference (Fáze 12: how many extras the block adds), stored like useStoredFlag. */
+export function useStoredNumber(key: string, fallback: number, allowed: readonly number[]): [number, (v: number) => void] {
+  const parse = (raw: string | null) => {
+    const n = raw === null ? NaN : Number(raw);
+    return allowed.includes(n) ? n : null;
+  };
+  const [value, setValue] = useState(() => parse(readLocal(key)) ?? fallback);
+  const touched = useRef(false);
+
+  useEffect(() => {
+    let alive = true;
+    desktop()
+      ?.prefGet?.(key)
+      .then((raw) => {
+        const n = parse(raw);
+        if (alive && !touched.current && n !== null) setValue(n);
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [key]);
+
+  const set = useCallback(
+    (v: number) => {
+      touched.current = true;
+      setValue(v);
+      writeLocal(key, String(v));
+      desktop()?.prefSet?.(key, String(v)).catch(() => {});
+    },
+    [key],
+  );
+  return [value, set];
+}

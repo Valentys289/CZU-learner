@@ -3,6 +3,7 @@ import { DEFAULT_TIME_ZONE, MILNIKY, MILNIKY_PROP, PROP, SUBJECTS, TRENINKY, TRE
 import type { MilnikyResponse, MilnikyRow } from "../timeline/types";
 import { toDateOnly, todayIn, withTermin } from "../lib/termin";
 import { isTask } from "../lib/phase";
+import { parsePlanDate, planPatch } from "../lib/plan";
 import { applyAction, buildUndoSnapshot, type TopicAction, type TopicPatch, type TopicWriteProps } from "../lib/hotovo";
 import type { Hotovo, SubjectError, Topic, TopicsResponse, TopicType } from "../types";
 import {
@@ -12,6 +13,7 @@ import {
   isMethod,
   lastSessionByTopic,
   parseSessionInput,
+  dumpBlocks,
   sessionPatch,
   toPageId,
   TRENINKY_MISSING,
@@ -395,6 +397,30 @@ export async function updateTopic(
 }
 
 /**
+ * Fáze 12: plan the next retrieval by hand ({ termin }). Reads the page first, so the
+ * step comes from Notion's current values; returns the undo values like updateTopic.
+ */
+export async function planTopic(
+  token: string,
+  pageId: string,
+  body: unknown,
+  timeZone = DEFAULT_TIME_ZONE,
+): Promise<{ topic: Topic; previous: Partial<TopicWriteProps>; written: Partial<TopicWriteProps> }> {
+  const today = todayIn(timeZone);
+  const date = parsePlanDate((body as { termin?: unknown } | null)?.termin, today);
+  if (!date.ok) throw new NotionError(date.error, 400);
+  const { page, subject } = await readTopicPage(token, pageId);
+  const before = pageToTopic(page, subject, today);
+  const result = planPatch(before, date.date);
+  if (!result) throw new NotionError(isTask(before) ? "Úkol nemá opakování, obnov seznam" : "Neučené téma ještě nejde naplánovat", 409);
+  const updated = await notionRequest<NotionPage>(token, LEGACY_VERSION, "PATCH", `/pages/${pageId}`, {
+    properties: patchToProperties(result.patch),
+  });
+  const { previous, written } = buildUndoSnapshot(before, result.patch, "", 0);
+  return { topic: pageToTopic(updated, subject, today), previous, written };
+}
+
+/**
  * Undo the last write: put back `previous`, but only while Notion still holds
  * what the write set (`written`), so a change made elsewhere is never overwritten.
  */
@@ -449,7 +475,13 @@ export async function logSession(
 
   const created = await notionRequest<NotionPage>(token, LEGACY_VERSION, "POST", "/pages", {
     parent: { database_id: databaseId },
-    properties: buildSessionRow(before, { ...input, note: sessionNote(input.note, before, result) }, isAdvance(before, result)),
+    properties: buildSessionRow(
+      before,
+      { ...input, note: sessionNote(input.note, before, result, { termin: result ? input.termin : null, dump: input.dump }) },
+      isAdvance(before, result),
+    ),
+    // Fáze 12: the brain dump goes into the row's body, in full.
+    ...(input.dump ? { children: dumpBlocks(input.dump) } : {}),
   });
 
   let topic = before;

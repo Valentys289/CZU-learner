@@ -3,7 +3,7 @@ import type { Topic, TopicsResponse } from "./types";
 import { DnesTab } from "./components/DnesTab";
 import { PredmetyTab } from "./components/PredmetyTab";
 import { TimelineTab } from "./components/TimelineTab";
-import { formatToday } from "./lib/format";
+import { formatDate, formatToday } from "./lib/format";
 import { withTermin } from "./lib/termin";
 import { dueCounts, isRetrievalTopic } from "./lib/phase";
 import {
@@ -164,7 +164,15 @@ export function App() {
         setLast(topic.id, { date: json.session.date, method: json.session.method, score: json.session.score });
         setSheet(null);
         const moved = !isEmpty(json.undo.written);
-        const gapLabel = !moved ? "" : input.gap === "repeat" ? ", krok zopakován" : input.gap === "reset" ? ", od začátku" : ", gap posunut";
+        const gapLabel = !moved
+          ? ""
+          : input.termin
+            ? `, další ${formatDate(input.termin, current.data.today)}`
+            : input.gap === "repeat"
+              ? ", krok zopakován"
+              : input.gap === "reset"
+                ? ", od začátku"
+                : ", gap posunut";
         setToast({
           kind: "undo",
           busy: false,
@@ -186,6 +194,42 @@ export function App() {
       }
     },
     [replaceTopic, setLast],
+  );
+
+  /** Fáze 12: move the next retrieval by hand (Jen přeplánovat). Not optimistic, like saveSession. */
+  const planTopic = useCallback(
+    async (topic: Topic, termin: string): Promise<string | null> => {
+      setToast(null);
+      setPending((p) => new Set(p).add(topic.id));
+      try {
+        const res = await fetch(`/api/topics/${topic.id}/plan`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ termin }),
+        });
+        const json = await res.json().catch(() => ({}));
+        if (!res.ok) return json.error ?? `HTTP ${res.status}`;
+        replaceTopic(json.topic as Topic);
+        setSheet(null);
+        setToast({
+          kind: "undo",
+          busy: false,
+          snapshot: {
+            pageId: topic.id,
+            previous: json.undo.previous,
+            written: json.undo.written,
+            label: `Přeplánováno na ${formatDate(termin, stateRef.current.status === "ready" ? stateRef.current.data.today : termin)}: ${topic.title}`,
+            expiresAt: Date.now() + UNDO_MS,
+          },
+        });
+        return null;
+      } catch (err) {
+        return err instanceof Error ? err.message : String(err);
+      } finally {
+        setPending((p) => removeFrom(p, topic.id));
+      }
+    },
+    [replaceTopic],
   );
 
   /** Zpět: put the previous values back in Notion. On failure reload, so the UI matches Notion. */
@@ -380,6 +424,7 @@ export function App() {
           treninkyError={state.data.treninky.error}
           onClose={closeSheet}
           onSave={(input) => saveSession(sheetTopic, input)}
+          onPlan={(termin) => planTopic(sheetTopic, termin)}
           onPlainHotovo={() => {
             setSheet(null);
             void run(sheetTopic, "hotovo");

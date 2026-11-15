@@ -38,6 +38,69 @@ export function dueBlock<T extends Pick<Topic, "termin" | "dueState" | "subject"
   return interleave(dnesList(topics));
 }
 
+/** Choices for how many learned topics (not due yet) a Dnešní blok adds. */
+export const EXTRA_OPTIONS = [0, 3, 5, 10] as const;
+export const DEFAULT_EXTRA = 5;
+/** Topics due within this many days are left out of the extras: they come soon anyway. */
+export const EXTRA_SKIP_SOON_DAYS = 2;
+
+type ExtraFields = ReviewFields & Pick<Topic, "posledni" | "termin" | "dueState">;
+
+/** Last time a topic was in front of you: the newest of the last session, Poslední opakování and Naučeno. */
+export function lastSeen(t: Pick<Topic, "id" | "posledni" | "nauceno">, last: Record<string, LastSession>): string {
+  return [last[toPageId(t.id)]?.date ?? "", t.posledni ?? "", t.nauceno ?? ""].reduce((a, b) => (b > a ? b : a), "");
+}
+
+/**
+ * Spaced retrieval of learned topics that are not due: the extras of Dnešní blok.
+ * Learned topics (měsíc included) not due today or in the next EXTRA_SKIP_SOON_DAYS
+ * days and not seen today. Weak ones first (last skóre 1 to 2), then the ones seen
+ * longest ago, so everything learned keeps coming back.
+ */
+export function extraPractice<T extends ExtraFields>(
+  topics: T[],
+  last: Record<string, LastSession>,
+  today: string,
+  count: number,
+): T[] {
+  if (count <= 0) return [];
+  const soon = addDays(today, EXTRA_SKIP_SOON_DAYS);
+  const weak = (t: T) => ((last[toPageId(t.id)]?.score ?? 5) <= 2 ? 0 : 1);
+  return topics
+    .filter(
+      (t) =>
+        isRetrievalTopic(t) &&
+        t.dueState !== "overdue" &&
+        t.dueState !== "today" &&
+        !(t.termin !== null && t.termin <= soon && t.dueState === "upcoming") &&
+        lastSeen(t, last) < today,
+    )
+    .sort((a, b) => weak(a) - weak(b) || lastSeen(a, last).localeCompare(lastSeen(b, last)) || a.title.localeCompare(b.title, "cs"))
+    .slice(0, count);
+}
+
+/**
+ * Fáze 12 Dnešní blok: everything due (Po termínu, Dnes) plus `extra` learned topics
+ * from extraPractice, minus the ones left out by hand, interleaved by subject.
+ * Within a subject the due ones come first, so stopping early leaves the extras.
+ */
+export function dailyBlock<T extends ExtraFields & Pick<Topic, "subject" | "poradi">>(
+  topics: T[],
+  last: Record<string, LastSession>,
+  today: string,
+  extra: number,
+  excluded: ReadonlySet<string> = new Set(),
+): { due: T[]; extras: T[]; all: T[] } {
+  const due = dnesList(topics).filter((t) => !excluded.has(t.id));
+  const extras = extraPractice(
+    topics.filter((t) => !excluded.has(t.id)),
+    last,
+    today,
+    extra,
+  );
+  return { due, extras, all: interleave([...due, ...extras]) };
+}
+
 /**
  * Method for a topic in a block: the subject's first preferred method that is not
  * the one used last time, so the material is seen from more than one angle.
