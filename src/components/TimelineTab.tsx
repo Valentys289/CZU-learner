@@ -1,6 +1,7 @@
 import type { Topic } from "../types";
 import type { Milestone, MilnikyResponse } from "../timeline/types";
 import { formatDate, relativeLabel } from "../lib/format";
+import { daysBetween } from "../lib/termin";
 import { buildTimeline, groupOf, studyPhase } from "../timeline/milestones";
 import { SubjectBadge } from "./SubjectBadge";
 
@@ -17,7 +18,7 @@ function formatDay(date: string, today: string): string {
 
 const formatTime = (time: string) => time.replace(/^0(\d:)/, "$1");
 
-/** Timeline = only Milníky cards. Learning topics stay on Dnes / Předměty. */
+/** Timeline = a compact list of Milníky sorted by deadline; details expand on click. Learning topics stay on Dnes / Předměty. */
 export function TimelineTab({ topics, milniky, today }: { topics: Topic[]; milniky: MilnikyResponse; today: string }) {
   const { milestones, skipped } = buildTimeline(topics, milniky, today);
   const upcoming = milestones.filter((m) => groupOf(m, today) === "upcoming");
@@ -46,9 +47,9 @@ export function TimelineTab({ topics, milniky, today }: { topics: Topic[]; milni
           <h2 className="section-title">
             Blížící se <span className="count">{upcoming.length}</span>
           </h2>
-          <ul className="milestones">
+          <ul className="ms-list">
             {upcoming.map((m) => (
-              <MilestoneCard key={m.id} m={m} today={today} />
+              <MilestoneRow key={m.id} m={m} today={today} />
             ))}
           </ul>
         </section>
@@ -58,9 +59,9 @@ export function TimelineTab({ topics, milniky, today }: { topics: Topic[]; milni
           <h2 className="section-title">
             Bez data <span className="count">{soft.length}</span>
           </h2>
-          <ul className="milestones">
+          <ul className="ms-list">
             {soft.map((m) => (
-              <MilestoneCard key={m.id} m={m} today={today} />
+              <MilestoneRow key={m.id} m={m} today={today} />
             ))}
           </ul>
         </section>
@@ -70,9 +71,9 @@ export function TimelineTab({ topics, milniky, today }: { topics: Topic[]; milni
           <summary className="section-title">
             Minulé <span className="count">{past.length}</span>
           </summary>
-          <ul className="milestones">
+          <ul className="ms-list">
             {past.map((m) => (
-              <MilestoneCard key={m.id} m={m} today={today} />
+              <MilestoneRow key={m.id} m={m} today={today} />
             ))}
           </ul>
         </details>
@@ -81,85 +82,104 @@ export function TimelineTab({ topics, milniky, today }: { topics: Topic[]; milni
   );
 }
 
-function When({ m, today }: { m: Milestone; today: string }) {
-  const extra = [m.time && formatTime(m.time), m.place].filter(Boolean).join(" · ");
-  if (m.conflictDates) {
-    return (
-      <p className="ms-when">
-        {m.conflictDates.map((d) => formatDay(d, today)).join(" / ")}
-        {extra && ` · ${extra}`}
-        {groupOf(m, today) === "upcoming" && (
-          <span className="ms-countdown">{relativeLabel(m.conflictDates[0], today)}</span>
-        )}
-      </p>
-    );
-  }
-  if (!m.date) return <p className="ms-when ms-when-soft">{m.softText ?? "Bez data"}</p>;
-  return (
-    <p className="ms-when">
-      {[formatDay(m.date, today), extra].filter(Boolean).join(" · ")}
-      <span className="ms-countdown">{relativeLabel(m.date, today)}</span>
-    </p>
-  );
+/** First relevant date of a milestone (a conflict uses its earliest date). */
+const dateOf = (m: Milestone) => m.conflictDates?.[0] ?? m.date ?? null;
+
+/** Full "when" line for the expanded detail: all dates, time and place. */
+function whenDetail(m: Milestone, today: string): string | null {
+  const dates = m.conflictDates ?? (m.date ? [m.date] : []);
+  if (dates.length === 0) return null;
+  const extra = [m.time && formatTime(m.time), m.place].filter(Boolean);
+  return [dates.map((d) => formatDay(d, today)).join(" / "), ...extra].join(" · ");
 }
 
-function MilestoneCard({ m, today }: { m: Milestone; today: string }) {
+function MilestoneRow({ m, today }: { m: Milestone; today: string }) {
   const conflict = m.sources.includes("conflict");
-  const phase = groupOf(m, today) === "upcoming" ? studyPhase(m, today) : null;
+  const upcoming = groupOf(m, today) === "upcoming";
+  const phase = upcoming ? studyPhase(m, today) : null;
+  const date = dateOf(m);
+  const days = date ? daysBetween(today, date) : null;
+  const soon = upcoming && days !== null && days <= 7;
+  const when = whenDetail(m, today);
 
   return (
-    <li className={`ms-card${m.date || m.conflictDates ? "" : " ms-soft"}${conflict ? " ms-conflict" : ""}`}>
-      <div className="ms-head">
-        <SubjectBadge code={m.subject} />
-        <span className="ms-title">{m.title}</span>
-        {conflict && <span className="ms-flag">Konflikt zdrojů</span>}
-        {phase && <span className="ms-phase">{PHASE_LABEL[phase]}</span>}
-      </div>
-      <When m={m} today={today} />
-      {m.softText && (m.date || m.conflictDates) && <p className="ms-note">{m.softText}</p>}
-      {m.note && <p className="ms-note">{m.note}</p>}
+    <li className={`ms-row${date ? "" : " ms-soft"}${conflict ? " ms-conflict" : ""}`}>
+      <details>
+        <summary>
+          <SubjectBadge code={m.subject} />
+          <span className="ms-title">
+            {m.title}
+            {conflict && (
+              <span className="ms-dot" title="Konflikt zdrojů" aria-label="Konflikt zdrojů">
+                !
+              </span>
+            )}
+          </span>
+          {date ? (
+            <>
+              <span className="ms-date">{formatDay(date, today)}</span>
+              <span className={`ms-countdown${soon ? " ms-soon" : ""}`}>{relativeLabel(date, today)}</span>
+            </>
+          ) : (
+            <span className="ms-date ms-date-soft">{m.softText ?? "Bez data"}</span>
+          )}
+          <span className="ms-chevron" aria-hidden="true" />
+        </summary>
 
-      {m.progress && (
-        <>
-          <div className="ms-progress">
-            <div
-              className="bar"
-              role="progressbar"
-              aria-valuemin={0}
-              aria-valuemax={m.progress.total}
-              aria-valuenow={m.progress.done}
-            >
-              <span style={{ width: `${Math.round(m.progress.pct * 100)}%` }} />
+        <div className="ms-detail">
+          {(conflict || phase) && (
+            <div className="ms-tags">
+              {conflict && <span className="ms-flag">Konflikt zdrojů</span>}
+              {phase && <span className="ms-phase">{PHASE_LABEL[phase]}</span>}
             </div>
-            <span className="ms-progress-label">
-              {m.progress.done}/{m.progress.total} Naučeno
-            </span>
-          </div>
-          <ul className="bundles">
-            {m.progress.items.map((i) => (
-              <li
-                key={i.title}
-                className={`chip${i.done ? " chip-done" : ""}`}
-                title={i.topicId ? undefined : "Téma v Notionu nenalezeno"}
-              >
-                {i.done ? "✓ " : ""}
-                {i.title}
-                {!i.topicId && " ?"}
-              </li>
-            ))}
-          </ul>
-        </>
-      )}
+          )}
+          {when && <p className="ms-when">{when}</p>}
+          {m.softText && date && <p className="ms-note">{m.softText}</p>}
+          {m.note && <p className="ms-note">{m.note}</p>}
 
-      {m.linkOut.length > 0 && (
-        <div className="ms-links">
-          {m.linkOut.map((l) => (
-            <a key={l.href} href={l.href} target="_blank" rel="noreferrer">
-              {l.label}
-            </a>
-          ))}
+          {m.progress && (
+            <>
+              <div className="ms-progress">
+                <div
+                  className="bar"
+                  role="progressbar"
+                  aria-valuemin={0}
+                  aria-valuemax={m.progress.total}
+                  aria-valuenow={m.progress.done}
+                >
+                  <span style={{ width: `${Math.round(m.progress.pct * 100)}%` }} />
+                </div>
+                <span className="ms-progress-label">
+                  {m.progress.done}/{m.progress.total} Naučeno
+                </span>
+              </div>
+              <ul className="bundles">
+                {m.progress.items.map((i) => (
+                  <li
+                    key={i.title}
+                    className={`chip${i.done ? " chip-done" : ""}`}
+                    title={i.topicId ? undefined : "Téma v Notionu nenalezeno"}
+                  >
+                    {i.done ? "✓ " : ""}
+                    {i.title}
+                    {!i.topicId && " ?"}
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
+
+          {m.linkOut.length > 0 && (
+            <div className="ms-links">
+              {m.linkOut.map((l) => (
+                <a key={l.href} href={l.href} target="_blank" rel="noreferrer">
+                  {l.label}
+                </a>
+              ))}
+            </div>
+          )}
         </div>
-      )}
+      </details>
     </li>
   );
 }
