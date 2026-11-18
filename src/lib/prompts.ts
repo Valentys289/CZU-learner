@@ -5,6 +5,8 @@
 export const LINK_PROMPTS = [
   "Jak to souvisí s tématem „{other}“?",
   "V čem se to liší od „{other}“ a v čem je to stejné?",
+  "How does it relate to „{other}“?",
+  "Compare and Rate importance: tohle vs. „{other}“.",
 ] as const;
 
 export const PROMPTS = [
@@ -14,6 +16,15 @@ export const PROMPTS = [
   "Jaký problém tím vyřešíš? Vymysli vlastní příklad.",
   "Co je na tom nejdůležitější a proč?",
   "Jakou zákeřnou otázku by na to mohl dát zkoušející?",
+  // Honzovy otázky (17. 11. 2026), jeho znění.
+  "Critically analyze information, zkus to vyvrátit jen z prvních pocitů.",
+  "How does it relate?",
+  "What that mean IRL?",
+  "What is an analogy for this?",
+  "What is the opposite for this?",
+  "Evaluate relationships and question meaning.",
+  "Compare and Rate importance between more subjects.",
+  "Přepiš větu svými slovy a nech zkontrolovat.",
 ] as const;
 
 /** Small stable string hash (FNV-1a), so a topic gets the same question all day. */
