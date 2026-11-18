@@ -16,7 +16,7 @@ export const PROMPTS = [
   "Jaký problém tím vyřešíš? Vymysli vlastní příklad.",
   "Co je na tom nejdůležitější a proč?",
   "Jakou zákeřnou otázku by na to mohl dát zkoušející?",
-  // Honzovy otázky (17. 11. 2026), jeho znění.
+  // Otázky od uživatele (17. 11. 2026), původní znění.
   "Critically analyze information, zkus to vyvrátit jen z prvních pocitů.",
   "How does it relate?",
   "What that mean IRL?",
